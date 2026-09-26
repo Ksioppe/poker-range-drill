@@ -19,7 +19,313 @@ async function init(){await openDB();if('serviceWorker'in navigator)navigator.se
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 function nav(v){state.view=v;state.editing=null;state.selectedCells.clear();render()}
 function render(){document.querySelectorAll('.bottom-nav button').forEach(b=>b.classList.toggle('active',b.dataset.nav===state.view||state.view==='editor'&&b.dataset.nav==='ranges'||['question','result','setup'].includes(state.view)&&b.dataset.nav==='drill'));const app=document.getElementById('app');if(state.view==='ranges')renderRanges(app);else if(state.view==='editor')renderEditor(app);else if(state.view==='setup')renderSetup(app);else renderDrill(app)}
-async function renderRanges(app){const rs=await getRanges(),hs=(await getHistory()).sort((a,b)=>new Date(b.date)-new Date(a.date));app.innerHTML=`<main class="app"><div class="top"><h1>Mes ranges</h1><button class="btn" id="newRange">+ Créer</button></div>${rs.length?rs.map(r=>`<section class="card range-card"><div class="range-main"><div class="range-name">${esc(r.nom)}</div><div class="chips">${r.informations?.position?`<span class="chip">${esc(r.informations.position)}</span>`:''}${r.informations?.stack?`<span class="chip">${esc(r.informations.stack)}</span>`:''}${r.informations?.situation?`<span class="chip">${esc(r.informations.situation)}</span>`:''}<span class="chip">${Object.values(r.mains).filter(x=>x.length).length}/169</span></div></div><div class="actions"><button class="btn secondary edit" data-id="${r.id}">Modifier</button><button class="btn danger delete" data-id="${r.id}">×</button></div></section>`).join(''):`<div class="card empty"><div class="big">Aucune range</div><p class="muted">Crée ta première range pour commencer tes drills.</p><button class="btn" id="emptyNew">Créer une range</button></div>`}<div class="card"><div class="section-title" style="margin-top:0">Historique</div>${hs.length?hs.map(h=>{const pct=Math.round(h.score/h.total*100);const d=new Date(h.date);return `<div class="history-item"><div class="history-main"><div><b>${d.toLocaleDateString('fr-FR')} à ${d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</b><br><span class="muted">${h.total} mains</span></div><div class="history-score">${h.score}/${h.total}</div></div><div><b>${pct} % de réussite</b></div></div>`}).join(''):'<div class="muted">Aucun drill réalisé pour le moment.</div>'}</div></main>`;document.getElementById('newRange')?.addEventListener('click',()=>openEditor());document.getElementById('emptyNew')?.addEventListener('click',()=>openEditor());app.querySelectorAll('.edit').forEach(b=>b.onclick=async()=>openEditor((await getRanges()).find(r=>r.id===b.dataset.id)));app.querySelectorAll('.delete').forEach(b=>b.onclick=async()=>{if(confirm('Supprimer cette range ?')){await delRange(b.dataset.id);render()}})}
+function groupRangesByPosition(ranges){
+  const groups = {};
+
+  for(const r of ranges){
+    const position = (r.informations?.position || '').trim() || 'Sans position';
+
+    if(!groups[position]){
+      groups[position] = [];
+    }
+
+    groups[position].push(r);
+  }
+
+  const order = ['UTG','HJ','CO','BTN','SB','BB','Sans position'];
+
+  return Object.entries(groups).sort(([a],[b]) => {
+    const ia = order.indexOf(a);
+    const ib = order.indexOf(b);
+
+    if(ia !== -1 && ib !== -1) return ia - ib;
+    if(ia !== -1) return -1;
+    if(ib !== -1) return 1;
+
+    return a.localeCompare(b,'fr');
+  });
+}
+
+function positionGroupHTML(position,ranges,options={}){
+  const drillMode=options.drillMode||false;
+  const groupId='group_'+position.replace(/[^a-zA-Z0-9]/g,'_');
+
+  if(drillMode){
+    return `
+      <section class="range-group">
+
+        <div class="range-group-header" data-group="${esc(groupId)}">
+          <div>
+            <span class="group-arrow">▶</span>
+            <b>${esc(position)}</b>
+            <span class="muted">
+              · ${ranges.length} range${ranges.length>1?'s':''}
+            </span>
+          </div>
+
+          <label class="group-check" onclick="event.stopPropagation()">
+            <input
+              type="checkbox"
+              class="position-check"
+              data-position="${esc(position)}"
+            >
+          </label>
+        </div>
+
+        <div class="range-group-content" id="${esc(groupId)}" hidden>
+          ${ranges.map(r=>`
+            <label class="check-row drill-range-row">
+              <input
+                type="checkbox"
+                class="range-check"
+                value="${esc(r.id)}"
+              >
+
+              <span class="grow">
+                <b>${esc(r.nom)}</b><br>
+
+                <small class="muted">
+                  ${Object.values(r.mains).filter(x=>x.length).length}/169 définies
+                </small>
+              </span>
+            </label>
+          `).join('')}
+        </div>
+
+      </section>
+    `;
+  }
+
+  return `
+    <section class="range-group">
+
+      <div class="range-group-header" data-group="${esc(groupId)}">
+        <div>
+          <span class="group-arrow">▶</span>
+          <b>${esc(position)}</b>
+          <span class="muted">
+            · ${ranges.length} range${ranges.length>1?'s':''}
+          </span>
+        </div>
+      </div>
+
+      <div class="range-group-content" id="${esc(groupId)}" hidden>
+
+        ${ranges.map(r=>`
+          <section class="card range-card">
+
+            <div class="range-main">
+              <div class="range-name">
+                ${esc(r.nom)}
+              </div>
+
+              <div class="chips">
+                ${r.informations?.position
+                  ? `<span class="chip">${esc(r.informations.position)}</span>`
+                  : ''}
+
+                ${r.informations?.stack
+                  ? `<span class="chip">${esc(r.informations.stack)}</span>`
+                  : ''}
+
+                ${r.informations?.situation
+                  ? `<span class="chip">${esc(r.informations.situation)}</span>`
+                  : ''}
+
+                <span class="chip">
+                  ${Object.values(r.mains).filter(x=>x.length).length}/169
+                </span>
+              </div>
+            </div>
+
+            <div class="actions">
+              <button
+                class="btn secondary edit"
+                data-id="${esc(r.id)}"
+              >
+                Modifier
+              </button>
+
+              <button
+                class="btn danger delete"
+                data-id="${esc(r.id)}"
+              >
+                ×
+              </button>
+            </div>
+
+          </section>
+        `).join('')}
+
+      </div>
+
+    </section>
+  `;
+}
+async function renderRanges(app){
+  const rs=await getRanges();
+
+  const hs=(await getHistory())
+    .sort((a,b)=>new Date(b.date)-new Date(a.date));
+
+  const groups=groupRangesByPosition(rs);
+
+  app.innerHTML=`
+    <main class="app">
+
+      <div class="top">
+        <h1>Mes ranges</h1>
+        <button class="btn" id="newRange">+ Créer</button>
+      </div>
+
+      ${
+        rs.length
+        ? `
+          <div class="range-groups">
+            ${groups
+              .map(([position,ranges]) =>
+                positionGroupHTML(position,ranges)
+              )
+              .join('')}
+          </div>
+        `
+        : `
+          <div class="card empty">
+            <div class="big">Aucune range</div>
+
+            <p class="muted">
+              Crée ta première range pour commencer tes drills.
+            </p>
+
+            <button class="btn" id="emptyNew">
+              Créer une range
+            </button>
+          </div>
+        `
+      }
+
+      <div class="card">
+
+        <div class="section-title" style="margin-top:0">
+          Historique
+        </div>
+
+        ${
+          hs.length
+          ? hs.map(h=>{
+              const pct=Math.round(h.score/h.total*100);
+              const d=new Date(h.date);
+
+              return `
+                <div class="history-item">
+
+                  <div class="history-main">
+
+                    <div>
+                      <b>
+                        ${d.toLocaleDateString('fr-FR')}
+                        à
+                        ${d.toLocaleTimeString('fr-FR',{
+                          hour:'2-digit',
+                          minute:'2-digit'
+                        })}
+                      </b>
+
+                      <br>
+
+                      <span class="muted">
+                        ${h.total} mains
+                      </span>
+                    </div>
+
+                    <div class="history-score">
+                      ${h.score}/${h.total}
+                    </div>
+
+                  </div>
+
+                  <div>
+                    <b>${pct} % de réussite</b>
+                  </div>
+
+                </div>
+              `;
+            }).join('')
+          : `
+            <div class="muted">
+              Aucun drill réalisé pour le moment.
+            </div>
+          `
+        }
+
+      </div>
+
+    </main>
+  `;
+
+  document
+    .getElementById('newRange')
+    ?.addEventListener('click',()=>openEditor());
+
+  document
+    .getElementById('emptyNew')
+    ?.addEventListener('click',()=>openEditor());
+
+  app
+    .querySelectorAll('.range-group-header')
+    .forEach(header=>{
+
+      header.onclick=()=>{
+
+        const content=
+          document.getElementById(header.dataset.group);
+
+        if(!content)return;
+
+        const arrow=
+          header.querySelector('.group-arrow');
+
+        content.hidden=!content.hidden;
+
+        if(arrow){
+          arrow.textContent=
+            content.hidden ? '▶' : '▼';
+        }
+      };
+    });
+
+  app
+    .querySelectorAll('.edit')
+    .forEach(b=>{
+
+      b.onclick=async e=>{
+
+        e.stopPropagation();
+
+        openEditor(
+          (await getRanges())
+            .find(r=>r.id===b.dataset.id)
+        );
+      };
+    });
+
+  app
+    .querySelectorAll('.delete')
+    .forEach(b=>{
+
+      b.onclick=async e=>{
+
+        e.stopPropagation();
+
+        if(confirm('Supprimer cette range ?')){
+
+          await delRange(b.dataset.id);
+
+          render();
+        }
+      };
+    });
+}
 function blankRange(){return{id:uid('range'),nom:'',informations:{position:'',stack:'',situation:''},etiquettes:[],mains:Object.fromEntries(allHands().map(h=>[h,[]]))}}
 async function openEditor(range){state.editing=range?structuredClone(range):blankRange();state.selectedCells.clear();state.view='editor';render()}
 function syncEditorFields(){const r=state.editing;if(!r)return;r.nom=document.getElementById('name')?.value??r.nom;r.informations.position=document.getElementById('position')?.value??r.informations.position;r.informations.stack=document.getElementById('stack')?.value??r.informations.stack;r.informations.situation=document.getElementById('situation')?.value??r.informations.situation}
@@ -36,7 +342,265 @@ function updateSelectedCount(){const el=document.getElementById('selected-count'
 function labelModal(existing){const r=state.editing;let color=existing?.couleur||COLORS[r.etiquettes.length%COLORS.length];document.getElementById('modal-root').innerHTML=`<div class="modal-backdrop"><div class="modal"><h2>${existing?'Modifier':'Nouvelle'} étiquette</h2><div class="field"><label>Nom</label><input class="input" id="labelName" value="${esc(existing?.nom||'')}" placeholder="Raise, Fold, All-in..."></div><div class="field"><label>Couleur</label><div class="color-grid">${COLORS.map(c=>`<button type="button" class="color-choice ${c===color?'selected':''}" data-color="${c}" style="background:${c}"></button>`).join('')}</div></div><div class="toolbar"><button class="btn secondary" id="cancel">Annuler</button><button class="btn" id="ok">Enregistrer</button></div></div></div>`;document.querySelectorAll('.color-choice').forEach(b=>b.onclick=()=>{color=b.dataset.color;document.querySelectorAll('.color-choice').forEach(x=>x.classList.remove('selected'));b.classList.add('selected')});document.getElementById('cancel').onclick=()=>document.getElementById('modal-root').innerHTML='';document.getElementById('ok').onclick=()=>{const n=document.getElementById('labelName').value.trim();if(!n)return;if(existing){existing.nom=n;existing.couleur=color}else r.etiquettes.push({id:uid('label'),nom:n,couleur:color});document.getElementById('modal-root').innerHTML='';render()}}
 function applyLabel(id){const r=state.editing;syncEditorFields();for(const h of state.selectedCells){let a=r.mains[h]||[];if(a.includes(id))a=a.filter(x=>x!==id);else if(a.length<2)a=[...a,id];r.mains[h]=a}state.selectedCells.clear();render()}
 async function saveRange(){syncEditorFields();const r=state.editing;if(!r.nom){alert('Donne un nom à la range.');return}await putRange(r);state.view='ranges';state.editing=null;render()}
-function renderSetup(app){app.innerHTML=`<main class="app"><div class="top"><h1>Nouveau drill</h1></div><div class="card"><div class="section-title" style="margin-top:0">1. Choisir les ranges</div><div id="rangeChoices" class="muted">Chargement...</div></div><div class="card"><div class="section-title" style="margin-top:0">2. Nombre de mains</div><div class="toolbar">${[10,20,30,50,100].map(n=>`<button class="btn secondary len" data-n="${n}">${n}</button>`).join('')}</div></div><div class="sticky"><button class="btn" id="start" style="width:100%">Commencer</button></div></main>`;getRanges().then(rs=>{const box=document.getElementById('rangeChoices');if(!box)return;box.innerHTML=rs.length?rs.map(r=>`<label class="check-row"><input type="checkbox" class="range-check" value="${r.id}"><span class="grow"><b>${esc(r.nom)}</b><br><small class="muted">${Object.values(r.mains).filter(x=>x.length).length}/169 définies</small></span></label>`).join(''):'<div class="notice">Crée au moins une range avant de lancer un drill.</div>'});let len=20;app.querySelectorAll('.len').forEach(b=>b.onclick=()=>{len=+b.dataset.n;app.querySelectorAll('.len').forEach(x=>x.classList.add('secondary'));b.classList.remove('secondary')});document.getElementById('start').onclick=async()=>{const rs=await getRanges(),ids=[...document.querySelectorAll('.range-check:checked')].map(x=>x.value),sel=rs.filter(r=>ids.includes(r.id));if(!sel.length){alert('Sélectionne au moins une range.');return}const situations=buildSituations(sel);if(!situations.fold.length||!situations.nonFold.length){alert('Pour respecter le ratio 30/70, les ranges sélectionnées doivent contenir au moins une situation Fold et une situation Non-Fold définies.');return}state.drill={ranges:sel,questions:makeQuestions(situations,len),index:0,score:0,answers:[]};state.view='question';render()}}
+function renderSetup(app){
+
+  app.innerHTML=`
+    <main class="app">
+
+      <div class="top">
+        <h1>Nouveau drill</h1>
+      </div>
+
+      <div class="card">
+
+        <div class="section-title" style="margin-top:0">
+          1. Choisir les ranges
+        </div>
+
+        <div class="toolbar" style="margin-bottom:12px">
+
+          <button class="btn secondary" id="selectAllRanges">
+            Tout sélectionner
+          </button>
+
+          <button class="btn secondary" id="clearAllRanges">
+            Tout désélectionner
+          </button>
+
+        </div>
+
+        <div id="rangeChoices" class="muted">
+          Chargement...
+        </div>
+
+      </div>
+
+      <div class="card">
+
+        <div class="section-title" style="margin-top:0">
+          2. Nombre de mains
+        </div>
+
+        <div class="toolbar">
+
+          ${[10,20,30,50,100].map(n=>`
+            <button
+              class="btn secondary len"
+              data-n="${n}"
+            >
+              ${n}
+            </button>
+          `).join('')}
+
+        </div>
+
+      </div>
+
+      <div class="sticky">
+
+        <button
+          class="btn"
+          id="start"
+          style="width:100%"
+        >
+          Commencer
+        </button>
+
+      </div>
+
+    </main>
+  `;
+
+  getRanges().then(rs=>{
+
+    const box=document.getElementById('rangeChoices');
+
+    if(!box)return;
+
+    if(!rs.length){
+
+      box.innerHTML=`
+        <div class="notice">
+          Crée au moins une range avant de lancer un drill.
+        </div>
+      `;
+
+      return;
+    }
+
+    const groups=groupRangesByPosition(rs);
+
+    box.innerHTML=`
+      <div class="range-groups">
+
+        ${groups
+          .map(([position,ranges]) =>
+            positionGroupHTML(
+              position,
+              ranges,
+              {drillMode:true}
+            )
+          )
+          .join('')}
+
+      </div>
+    `;
+
+    box
+      .querySelectorAll('.range-group-header')
+      .forEach(header=>{
+
+        header.onclick=()=>{
+
+          const content=
+            document.getElementById(header.dataset.group);
+
+          if(!content)return;
+
+          const arrow=
+            header.querySelector('.group-arrow');
+
+          content.hidden=!content.hidden;
+
+          if(arrow){
+            arrow.textContent=
+              content.hidden ? '▶' : '▼';
+          }
+        };
+      });
+
+    box
+      .querySelectorAll('.position-check')
+      .forEach(check=>{
+
+        check.onchange=()=>{
+
+          const position=
+            check.dataset.position;
+
+          box
+            .querySelectorAll('.range-check')
+            .forEach(rangeCheck=>{
+
+              const range=
+                rs.find(r=>r.id===rangeCheck.value);
+
+              if(!range)return;
+
+              const rangePosition=
+                (range.informations?.position || '')
+                  .trim() || 'Sans position';
+
+              if(rangePosition===position){
+                rangeCheck.checked=
+                  check.checked;
+              }
+
+            });
+        };
+      });
+
+  });
+
+  let len=20;
+
+  app
+    .querySelectorAll('.len')
+    .forEach(b=>{
+
+      b.onclick=()=>{
+
+        len=+b.dataset.n;
+
+        app
+          .querySelectorAll('.len')
+          .forEach(x=>
+            x.classList.add('secondary')
+          );
+
+        b.classList.remove('secondary');
+      };
+
+    });
+
+  document
+    .getElementById('selectAllRanges')
+    .onclick=()=>{
+
+      app
+        .querySelectorAll('.range-check')
+        .forEach(x=>x.checked=true);
+
+      app
+        .querySelectorAll('.position-check')
+        .forEach(x=>x.checked=true);
+    };
+
+  document
+    .getElementById('clearAllRanges')
+    .onclick=()=>{
+
+      app
+        .querySelectorAll('.range-check')
+        .forEach(x=>x.checked=false);
+
+      app
+        .querySelectorAll('.position-check')
+        .forEach(x=>x.checked=false);
+    };
+
+  document
+    .getElementById('start')
+    .onclick=async()=>{
+
+      const rs=await getRanges();
+
+      const ids=[
+        ...document
+          .querySelectorAll('.range-check:checked')
+      ].map(x=>x.value);
+
+      const sel=
+        rs.filter(r=>ids.includes(r.id));
+
+      if(!sel.length){
+
+        alert('Sélectionne au moins une range.');
+
+        return;
+      }
+
+      const situations=
+        buildSituations(sel);
+
+      if(
+        !situations.fold.length ||
+        !situations.nonFold.length
+      ){
+
+        alert(
+          'Pour respecter le ratio 30/70, les ranges sélectionnées doivent contenir au moins une situation Fold et une situation Non-Fold définies.'
+        );
+
+        return;
+      }
+
+      state.drill={
+        ranges:sel,
+        questions:makeQuestions(
+          situations,
+          len
+        ),
+        index:0,
+        score:0,
+        answers:[]
+      };
+
+      state.view='question';
+
+      render();
+    };
+}
 function isFoldOnly(r,h){const ids=r.mains[h]||[];if(!ids.length)return false;return ids.every(id=>{const l=r.etiquettes.find(x=>x.id===id);return l&&l.nom.trim().toLowerCase()==='fold'})}
 function buildSituations(rs){const fold=[],nonFold=[];for(const r of rs)for(const h of allHands()){if(!(r.mains[h]||[]).length)continue;const labels=(r.mains[h]||[]).map(id=>r.etiquettes.find(l=>l.id===id)).filter(Boolean);const s={rangeId:r.id,range:r,main:h,labels};(isFoldOnly(r,h)?fold:nonFold).push(s)}return{fold,nonFold}}
 function sample(arr,n){const pool=[...arr],out=[];for(let i=0;i<n;i++){if(!pool.length)pool.push(...arr);const j=Math.floor(Math.random()*pool.length);out.push(pool.splice(j,1)[0])}return out}
