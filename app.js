@@ -524,7 +524,7 @@ function positionGroupHTML(position,ranges,options={}){
 
 
 /* =========================================================
-   EXPORT
+   EXPORT JSON
 ========================================================= */
 
 function downloadJSON(data,filename){
@@ -578,7 +578,7 @@ async function exportRanges(){
 
 
 /* =========================================================
-   IMPORT
+   IMPORT JSON
 ========================================================= */
 
 function normalizeImportedRange(r){
@@ -877,6 +877,424 @@ function importRanges(){
 
 
 /* =========================================================
+   IMPORT EXCEL
+========================================================= */
+
+function cleanExcelValue(value){
+
+  if(
+    value===null ||
+    value===undefined
+  ){
+    return '';
+  }
+
+  return String(value).trim();
+}
+
+
+function createImportedLabel(range,action){
+
+  action=cleanExcelValue(action);
+
+  if(!action){
+    return null;
+  }
+
+  const existing=
+    range.etiquettes.find(
+      l=>
+        l.nom.trim().toLowerCase()===
+        action.toLowerCase()
+    );
+
+  if(existing){
+    return existing.id;
+  }
+
+  const label={
+
+    id:uid('label'),
+
+    nom:action,
+
+    couleur:
+      COLORS[
+        range.etiquettes.length %
+        COLORS.length
+      ]
+  };
+
+  range.etiquettes.push(label);
+
+  return label.id;
+}
+
+
+function convertExcelSheetToRange(sheet){
+
+  if(typeof XLSX==='undefined'){
+    return null;
+  }
+
+  const data=
+    XLSX.utils.sheet_to_json(
+      sheet,
+      {
+        header:1,
+        defval:''
+      }
+    );
+
+  if(!data.length){
+    return null;
+  }
+
+
+  /*
+    FORMAT ATTENDU
+
+    A1 = Nom de la range
+    B1 = valeur
+
+    A2 = Position
+    B2 = valeur
+
+    A3 = Stack
+    B3 = valeur
+
+    A4 = Situation
+    B4 = valeur
+
+    Puis matrice :
+
+    D3 = AA
+    E3 = action
+
+    F3 = AKs
+    G3 = action
+
+    etc.
+
+    13 lignes × 13 colonnes
+  */
+
+
+  const nom=
+    cleanExcelValue(
+      data[0]?.[1]
+    );
+
+  const position=
+    cleanExcelValue(
+      data[1]?.[1]
+    );
+
+  const stack=
+    cleanExcelValue(
+      data[2]?.[1]
+    );
+
+  const situation=
+    cleanExcelValue(
+      data[3]?.[1]
+    );
+
+
+  if(!nom){
+    return null;
+  }
+
+
+  const range={
+
+    id:uid('range'),
+
+    nom:nom,
+
+    informations:{
+      position:position,
+      stack:stack,
+      situation:situation
+    },
+
+    etiquettes:[],
+
+    mains:Object.fromEntries(
+      allHands().map(
+        h=>[h,[]]
+      )
+    )
+  };
+
+
+  /*
+    Les mains commencent à la ligne 3
+    du fichier Excel.
+
+    En index JavaScript :
+    ligne Excel 3 = data[2]
+
+    Les mains commencent à la colonne D.
+
+    En index JavaScript :
+    colonne D = 3
+
+    Chaque main occupe 2 colonnes :
+    D/E
+    F/G
+    H/I
+    etc.
+  */
+
+
+  for(
+    let row=2;
+    row<15;
+    row++
+  ){
+
+    for(
+      let col=3;
+      col<29;
+      col+=2
+    ){
+
+      const main=
+        cleanExcelValue(
+          data[row]?.[col]
+        );
+
+      const action=
+        cleanExcelValue(
+          data[row]?.[col+1]
+        );
+
+
+      if(!main){
+        continue;
+      }
+
+      if(
+        !allHands().includes(main)
+      ){
+        continue;
+      }
+
+      if(!action){
+        continue;
+      }
+
+
+      /*
+        IMPORTANT :
+
+        "+" est le séparateur entre
+        deux étiquettes.
+
+        Exemple :
+        Raise + Call
+
+        En revanche :
+
+        Raise/Call
+        Raise/Fold
+
+        restent chacun une seule
+        étiquette.
+      */
+
+      const finalActions=
+        action
+          .split(/\s*\+\s*/)
+          .map(x=>x.trim())
+          .filter(Boolean)
+          .slice(0,2);
+
+
+      const labelIds=[];
+
+
+      for(const labelName of finalActions){
+
+        if(labelIds.length>=2){
+          break;
+        }
+
+        const labelId=
+          createImportedLabel(
+            range,
+            labelName
+          );
+
+        if(labelId){
+          labelIds.push(labelId);
+        }
+      }
+
+
+      range.mains[main]=labelIds;
+    }
+  }
+
+
+  return range;
+}
+
+
+async function importExcelFile(file){
+
+  if(typeof XLSX==='undefined'){
+
+    alert(
+      'Le lecteur Excel n’est pas disponible.\n\n'+
+      'Vérifie que cette ligne est bien présente dans index.html :\n\n'+
+      'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'
+    );
+
+    return;
+  }
+
+
+  let workbook;
+
+
+  try{
+
+    const buffer=
+      await file.arrayBuffer();
+
+    workbook=
+      XLSX.read(
+        buffer,
+        {
+          type:'array'
+        }
+      );
+
+  }catch(error){
+
+    console.error(error);
+
+    alert(
+      'Impossible de lire ce fichier Excel.'
+    );
+
+    return;
+  }
+
+
+  const imported=[];
+
+
+  /*
+    Chaque feuille Excel devient
+    une range.
+  */
+
+  for(
+    const sheetName of workbook.SheetNames
+  ){
+
+    const sheet=
+      workbook.Sheets[sheetName];
+
+    const range=
+      convertExcelSheetToRange(sheet);
+
+    if(range){
+      imported.push(range);
+    }
+  }
+
+
+  if(!imported.length){
+
+    alert(
+      'Aucune range valide n’a été trouvée dans le fichier Excel.\n\n'+
+      'Vérifie que ton fichier respecte le modèle prévu.'
+    );
+
+    return;
+  }
+
+
+  const existing=
+    await getRanges();
+
+  const existingIds=
+    new Set(
+      existing.map(r=>r.id)
+    );
+
+
+  let added=0;
+
+
+  for(const range of imported){
+
+    while(
+      existingIds.has(range.id)
+    ){
+
+      range.id=uid('range');
+    }
+
+
+    await putRange(range);
+
+    existingIds.add(range.id);
+
+    added++;
+  }
+
+
+  render();
+
+
+  alert(
+    `Import Excel terminé.\n\n`+
+    `${added} range`+
+    `${added>1?'s':''}`+
+    ` importée`+
+    `${added>1?'s':''}.`
+  );
+}
+
+
+function importExcel(){
+
+  const input=
+    document.createElement('input');
+
+
+  input.type='file';
+
+
+  input.accept=
+    '.xlsx,.xls,'+
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,'+
+    'application/vnd.ms-excel';
+
+
+  input.onchange=()=>{
+
+    const file=
+      input.files?.[0];
+
+    if(!file){
+      return;
+    }
+
+    importExcelFile(file);
+  };
+
+
+  input.click();
+}
+
+
+/* =========================================================
    MES RANGES
 ========================================================= */
 
@@ -923,7 +1341,14 @@ async function renderRanges(app){
           class="btn secondary"
           id="importRanges"
         >
-          ↑ Importer des ranges
+          ↑ Importer JSON
+        </button>
+
+        <button
+          class="btn secondary"
+          id="importExcel"
+        >
+          ↑ Importer Excel
         </button>
 
       </div>
@@ -1081,6 +1506,14 @@ async function renderRanges(app){
     );
 
 
+  document
+    .getElementById('importExcel')
+    ?.addEventListener(
+      'click',
+      importExcel
+    );
+
+
   app
     .querySelectorAll('.range-group-header')
     .forEach(header=>{
@@ -1212,19 +1645,23 @@ function syncEditorFields(){
 
   r.nom=
     document.getElementById('name')?.value
-    ?? r.nom;
+    ??
+    r.nom;
 
   r.informations.position=
     document.getElementById('position')?.value
-    ?? r.informations.position;
+    ??
+    r.informations.position;
 
   r.informations.stack=
     document.getElementById('stack')?.value
-    ?? r.informations.stack;
+    ??
+    r.informations.stack;
 
   r.informations.situation=
     document.getElementById('situation')?.value
-    ?? r.informations.situation;
+    ??
+    r.informations.situation;
 }
 
 function renderEditor(app){
@@ -1560,7 +1997,9 @@ function renderEditor(app){
   document
     .getElementById('addLabel')
     .onclick=()=>{
+
       syncEditorFields();
+
       labelModal();
     };
 
@@ -1568,8 +2007,11 @@ function renderEditor(app){
   document
     .getElementById('clearSel')
     .onclick=()=>{
+
       state.selectedCells.clear();
+
       updateSelectedCount();
+
       updateGridSelectionVisuals();
     };
 
@@ -1627,6 +2069,7 @@ function renderEditor(app){
     .forEach(b=>{
 
       b.onclick=()=>{
+
         applyLabel(
           b.dataset.label
         );
@@ -2007,6 +2450,7 @@ function labelModal(existing){
   document
     .getElementById('cancel')
     .onclick=()=>{
+
       document
         .getElementById('modal-root')
         .innerHTML='';
@@ -3150,6 +3594,7 @@ document.addEventListener(
       );
 
     if(n){
+
       nav(
         n.dataset.nav
       );
@@ -3169,6 +3614,7 @@ document
           '.matrix-wrap'
         )
       ){
+
         e.preventDefault();
       }
     },
