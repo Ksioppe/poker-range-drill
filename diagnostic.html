@@ -1,104 +1,337 @@
 <!DOCTYPE html>
 <html lang="fr">
+
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Diagnostic Poker Range Drill</title>
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  >
+
+  <title>Diagnostic - Poker Range Drill</title>
+
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
-      line-height: 1.5;
+    body{
+      font-family:system-ui,sans-serif;
+      background:#f5f7fb;
+      color:#111827;
+      margin:0;
+      padding:20px;
     }
 
-    pre {
-      white-space: pre-wrap;
-      background: #f5f5f5;
-      padding: 15px;
-      border-radius: 8px;
+    main{
+      max-width:700px;
+      margin:auto;
+    }
+
+    .card{
+      background:#fff;
+      border:1px solid #ddd;
+      border-radius:14px;
+      padding:16px;
+      margin-bottom:12px;
+    }
+
+    button{
+      border:0;
+      border-radius:10px;
+      padding:11px 14px;
+      background:#111827;
+      color:#fff;
+      font-weight:700;
+      margin-right:8px;
+      margin-bottom:8px;
+      cursor:pointer;
+    }
+
+    pre{
+      white-space:pre-wrap;
+      word-break:break-word;
+      background:#f3f4f6;
+      padding:12px;
+      border-radius:10px;
+      line-height:1.5;
+    }
+
+    .range{
+      padding:10px 0;
+      border-top:1px solid #e5e7eb;
+    }
+
+    .muted{
+      color:#6b7280;
     }
   </style>
 </head>
 
 <body>
-  <h1>Diagnostic Poker Range Drill</h1>
-  <pre id="result">Analyse en cours...</pre>
 
-  <script>
-    const output = document.getElementById("result");
+<main>
 
-    function show(message) {
-      output.textContent += message + "\n";
+  <div class="card">
+
+    <h1>Diagnostic</h1>
+
+    <p class="muted">
+      Cette page lit uniquement les données locales de Poker Range Drill.
+      Elle ne supprime rien.
+    </p>
+
+    <button id="refresh">
+      Actualiser
+    </button>
+
+    <button id="export">
+      Exporter les données
+    </button>
+
+  </div>
+
+  <div class="card">
+
+    <h2>Informations</h2>
+
+    <pre id="output">Chargement...</pre>
+
+  </div>
+
+  <div class="card">
+
+    <h2>Ranges présentes</h2>
+
+    <div id="ranges"></div>
+
+  </div>
+
+</main>
+
+<script>
+
+const DB_NAME = "PokerRangeDrill";
+const DB_VERSION = 1;
+
+function openDB(){
+
+  return new Promise((resolve,reject)=>{
+
+    const request = indexedDB.open(DB_NAME,DB_VERSION);
+
+    request.onsuccess = () => {
+      resolve(request.result);
+    };
+
+    request.onerror = () => {
+      reject(request.error);
+    };
+
+  });
+}
+
+function getAll(db,storeName){
+
+  return new Promise((resolve,reject)=>{
+
+    if(!db.objectStoreNames.contains(storeName)){
+      resolve([]);
+      return;
     }
 
-    output.textContent = "";
+    const tx = db.transaction(storeName,"readonly");
+    const store = tx.objectStore(storeName);
+    const request = store.getAll();
 
-    show("Domaine : " + location.origin);
-    show("");
-
-    const request = indexedDB.open("PokerRangeDrill");
-
-    request.onerror = function () {
-      show("❌ Impossible d'ouvrir la base IndexedDB.");
-      show("Erreur : " + request.error);
+    request.onsuccess = () => {
+      resolve(request.result || []);
     };
 
-    request.onsuccess = function () {
-      const db = request.result;
-
-      show("✅ Base trouvée : PokerRangeDrill");
-      show("Version : " + db.version);
-      show("");
-
-      const stores = Array.from(db.objectStoreNames);
-
-      show("Tables trouvées :");
-      if (stores.length === 0) {
-        show("Aucune table.");
-      } else {
-        stores.forEach(store => show("• " + store));
-      }
-
-      show("");
-
-      if (!stores.includes("ranges")) {
-        show("❌ La table 'ranges' n'existe pas.");
-        return;
-      }
-
-      const transaction = db.transaction("ranges", "readonly");
-      const store = transaction.objectStore("ranges");
-      const getAllRequest = store.getAll();
-
-      getAllRequest.onsuccess = function () {
-        const ranges = getAllRequest.result;
-
-        show("Nombre de ranges trouvées : " + ranges.length);
-        show("");
-
-        if (ranges.length === 0) {
-          show("❌ La table existe mais elle est vide.");
-        } else {
-          show("🎉 RANGES TROUVÉES !");
-          show("");
-
-          ranges.forEach((range, index) => {
-            show(
-              (index + 1) +
-              ". " +
-              (range.name || "(nom inconnu)")
-            );
-          });
-        }
-
-        db.close();
-      };
-
-      getAllRequest.onerror = function () {
-        show("❌ Impossible de lire la table ranges.");
-        show("Erreur : " + getAllRequest.error);
-      };
+    request.onerror = () => {
+      reject(request.error);
     };
-  </script>
+
+  });
+}
+
+async function refresh(){
+
+  const output = document.getElementById("output");
+  const rangesElement = document.getElementById("ranges");
+
+  output.textContent = "Lecture de la base...";
+
+  rangesElement.innerHTML = "";
+
+  try{
+
+    const db = await openDB();
+
+    const ranges = await getAll(db,"ranges");
+    const history = await getAll(db,"history");
+
+    const stores = Array.from(db.objectStoreNames);
+
+    let text = "";
+
+    text += `Domaine : ${location.origin}\n\n`;
+
+    text += `Base : ${DB_NAME}\n`;
+
+    text += `Version : ${db.version}\n\n`;
+
+    text += "Tables :\n";
+
+    if(stores.length){
+      stores.forEach(store => {
+        text += `• ${store}\n`;
+      });
+    }else{
+      text += "Aucune\n";
+    }
+
+    text += `\nNombre de ranges : ${ranges.length}\n`;
+
+    text += `Nombre d'historiques : ${history.length}\n`;
+
+    output.textContent = text;
+
+    if(!ranges.length){
+
+      rangesElement.innerHTML = `
+        <p class="muted">
+          ❌ La table <strong>ranges</strong> est vide.
+        </p>
+      `;
+
+      return;
+    }
+
+    ranges.forEach((range,index)=>{
+
+      const div = document.createElement("div");
+
+      div.className = "range";
+
+      const position =
+        range?.informations?.position || "Sans position";
+
+      const stack =
+        range?.informations?.stack || "";
+
+      const situation =
+        range?.informations?.situation || "";
+
+      const definedHands =
+        range?.mains
+          ? Object.keys(range.mains).length
+          : 0;
+
+      div.innerHTML = `
+        <strong>${escapeHTML(range.nom || "Sans nom")}</strong>
+
+        <br>
+
+        <span class="muted">
+          ${escapeHTML(position)}
+          ${stack ? " · " + escapeHTML(stack) : ""}
+          ${situation ? " · " + escapeHTML(situation) : ""}
+          · ${definedHands} mains définies
+        </span>
+
+        <br>
+
+        <small class="muted">
+          ID : ${escapeHTML(range.id || "aucun")}
+        </small>
+      `;
+
+      rangesElement.appendChild(div);
+
+    });
+
+  }catch(error){
+
+    output.textContent =
+      "❌ Erreur : " + error.message;
+
+  }
+
+}
+
+function escapeHTML(value){
+
+  return String(value ?? "")
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;")
+    .replace(/'/g,"&#039;");
+}
+
+async function exportData(){
+
+  try{
+
+    const db = await openDB();
+
+    const ranges = await getAll(db,"ranges");
+    const history = await getAll(db,"history");
+
+    const data = {
+      app:"PokerRangeDrill",
+      version:1,
+      exportedAt:new Date().toISOString(),
+      ranges,
+      history
+    };
+
+    const blob = new Blob(
+      [JSON.stringify(data,null,2)],
+      {type:"application/json"}
+    );
+
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+
+    const date =
+      new Date()
+        .toISOString()
+        .slice(0,10);
+
+    a.href = url;
+    a.download =
+      `poker-range-drill-backup-${date}.json`;
+
+    document.body.appendChild(a);
+
+    a.click();
+
+    a.remove();
+
+    URL.revokeObjectURL(url);
+
+  }catch(error){
+
+    alert(
+      "Impossible d'exporter les données : " +
+      error.message
+    );
+
+  }
+
+}
+
+document
+  .getElementById("refresh")
+  .addEventListener("click",refresh);
+
+document
+  .getElementById("export")
+  .addEventListener("click",exportData);
+
+refresh();
+
+</script>
+
 </body>
 </html>
