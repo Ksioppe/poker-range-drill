@@ -31,3 +31,70 @@ button,input{font:inherit}
 
 @media(max-width:380px){.app{padding-left:8px;padding-right:8px}.card{padding:12px}.top h1{font-size:21px}.btn{padding:9px 11px}.matrix{border-spacing:1px}.cell span{font-size:clamp(6px,2.35vw,11px)}}
 @media(min-width:600px){.modal-backdrop{align-items:center}.modal{border-radius:20px}.app{padding:25px 18px}}
+.range-groups{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.range-group{
+  border:1px solid #e2e2dc;
+  border-radius:12px;
+  overflow:hidden;
+  background:#fff;
+}
+
+.range-group-header{
+  min-height:52px;
+  padding:0 14px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  cursor:pointer;
+  user-select:none;
+  -webkit-user-select:none;
+}
+
+.range-group-header:active{
+  background:#f8f8f6;
+}
+
+.group-arrow{
+  display:inline-block;
+  width:22px;
+  font-size:13px;
+}
+
+.range-group-content{
+  padding:8px;
+  border-top:1px solid #e8e8e2;
+}
+
+.range-group-content .range-card{
+  margin:0 0 8px;
+}
+
+.range-group-content .range-card:last-child{
+  margin-bottom:0;
+}
+
+.group-check{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:8px;
+}
+
+.group-check input{
+  width:20px;
+  height:20px;
+}
+
+.drill-range-row{
+  margin:0;
+  border-bottom:1px solid #eeeeea;
+}
+
+.drill-range-row:last-child{
+  border-bottom:none;
+}
