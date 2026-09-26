@@ -1,1 +1,11 @@
-{"name":"Poker Range Drill","short_name":"Range Drill","start_url":"./","display":"standalone","background_color":"#f5f7fb","theme_color":"#111827","lang":"fr"}
+{
+  "name": "Poker Range Drill",
+  "short_name": "Range Drill",
+  "description": "Application de révision des ranges de poker",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f5f7fb",
+  "theme_color": "#111827"
+}
