@@ -1,66 +1,110 @@
-const RANKS=['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
-
-const COLORS=[
-  '#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#06b6d4',
-  '#3b82f6','#6366f1','#8b5cf6','#ec4899','#64748b','#111827','#F8F8F6'
+const RANKS = [
+  'A','K','Q','J','T','9','8','7','6','5','4','3','2'
 ];
 
-const DB_NAME='PokerRangeDrill';
-const DB_VERSION=1;
+const COLORS = [
+  '#ef4444',
+  '#f97316',
+  '#eab308',
+  '#22c55e',
+  '#14b8a6',
+  '#06b6d4',
+  '#3b82f6',
+  '#6366f1',
+  '#8b5cf6',
+  '#ec4899',
+  '#64748b',
+  '#111827',
+  '#F8F8F6'
+];
+
+const DB_NAME = 'PokerRangeDrill';
+const DB_VERSION = 1;
 
 let db;
 
-const state={
-  view:'ranges',
-  editing:null,
-  selectedCells:new Set(),
-  drill:null
+const state = {
+  view: 'ranges',
+  editing: null,
+  selectedCells: new Set(),
+  drill: null
 };
 
-let gridPointerActive=false;
-let gridSelectionMode=true;
-let lastTouchedHand=null;
+let gridPointerActive = false;
+let gridSelectionMode = true;
+let lastTouchedHand = null;
 
 
 /* =========================================================
    OUTILS
 ========================================================= */
 
-function uid(prefix){
-  return prefix+'_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7);
+function uid(prefix) {
+  return (
+    prefix +
+    '_' +
+    Date.now().toString(36) +
+    '_' +
+    Math.random().toString(36).slice(2, 7)
+  );
 }
 
-function handAt(r,c){
-  if(r===c)return RANKS[r]+RANKS[c];
 
-  return r<c
-    ? RANKS[r]+RANKS[c]+'s'
-    : RANKS[c]+RANKS[r]+'o';
+function handAt(row, col) {
+
+  if (row === col) {
+    return RANKS[row] + RANKS[col];
+  }
+
+  return row < col
+    ? RANKS[row] + RANKS[col] + 's'
+    : RANKS[col] + RANKS[row] + 'o';
 }
 
-function allHands(){
-  const a=[];
 
-  for(let r=0;r<13;r++){
-    for(let c=0;c<13;c++){
-      a.push(handAt(r,c));
+function allHands() {
+
+  const hands = [];
+
+  for (let row = 0; row < 13; row++) {
+
+    for (let col = 0; col < 13; col++) {
+
+      hands.push(
+        handAt(row, col)
+      );
     }
   }
 
-  return a;
+  return hands;
 }
 
-function esc(s){
-  return String(s??'').replace(
+
+function esc(value) {
+
+  return String(value ?? '').replace(
     /[&<>"']/g,
-    m=>({
-      '&':'&amp;',
-      '<':'&lt;',
-      '>':'&gt;',
-      '"':'&quot;',
-      "'":'&#039;'
-    }[m])
+    character => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;'
+    }[character])
   );
+}
+
+
+function cleanExcelValue(value) {
+
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return '';
+  }
+
+  return String(value).trim();
 }
 
 
@@ -68,135 +112,213 @@ function esc(s){
    INDEXEDDB
 ========================================================= */
 
-function openDB(){
-  return new Promise((res,rej)=>{
+function openDB() {
 
-    const req=indexedDB.open(DB_NAME,DB_VERSION);
+  return new Promise((resolve, reject) => {
 
-    req.onupgradeneeded=()=>{
-      const d=req.result;
+    const request =
+      indexedDB.open(
+        DB_NAME,
+        DB_VERSION
+      );
 
-      if(!d.objectStoreNames.contains('ranges')){
-        d.createObjectStore('ranges',{keyPath:'id'});
+    request.onupgradeneeded = () => {
+
+      const database = request.result;
+
+      if (
+        !database.objectStoreNames.contains(
+          'ranges'
+        )
+      ) {
+
+        database.createObjectStore(
+          'ranges',
+          {
+            keyPath: 'id'
+          }
+        );
       }
 
-      if(!d.objectStoreNames.contains('history')){
-        d.createObjectStore('history',{keyPath:'id'});
+      if (
+        !database.objectStoreNames.contains(
+          'history'
+        )
+      ) {
+
+        database.createObjectStore(
+          'history',
+          {
+            keyPath: 'id'
+          }
+        );
       }
     };
 
-    req.onsuccess=()=>{
-      db=req.result;
-      res();
+    request.onsuccess = () => {
+
+      db = request.result;
+
+      db.onversionchange = () => {
+        db.close();
+      };
+
+      resolve();
     };
 
-    req.onerror=()=>{
-      rej(req.error);
-    };
-  });
-}
-
-function tx(store,mode='readonly'){
-  return db.transaction(store,mode).objectStore(store);
-}
-
-function getRanges(){
-  return new Promise((res,rej)=>{
-
-    const q=tx('ranges').getAll();
-
-    q.onsuccess=()=>{
-      res(q.result);
-    };
-
-    q.onerror=()=>{
-      rej(q.error);
+    request.onerror = () => {
+      reject(request.error);
     };
   });
 }
 
-function putRange(r){
-  return new Promise((res,rej)=>{
 
-    const q=tx('ranges','readwrite').put(r);
+function tx(store, mode = 'readonly') {
 
-    q.onsuccess=()=>{
-      res();
+  return db
+    .transaction(
+      store,
+      mode
+    )
+    .objectStore(store);
+}
+
+
+function getRanges() {
+
+  return new Promise((resolve, reject) => {
+
+    const request =
+      tx('ranges').getAll();
+
+    request.onsuccess = () => {
+      resolve(request.result || []);
     };
 
-    q.onerror=()=>{
-      rej(q.error);
+    request.onerror = () => {
+      reject(request.error);
     };
   });
 }
 
-function delRange(id){
-  return new Promise((res,rej)=>{
 
-    const q=tx('ranges','readwrite').delete(id);
+function putRange(range) {
 
-    q.onsuccess=()=>{
-      res();
+  return new Promise((resolve, reject) => {
+
+    const request =
+      tx(
+        'ranges',
+        'readwrite'
+      ).put(range);
+
+    request.onsuccess = () => {
+      resolve();
     };
 
-    q.onerror=()=>{
-      rej(q.error);
-    };
-  });
-}
-
-function getHistory(){
-  return new Promise((res,rej)=>{
-
-    const q=tx('history').getAll();
-
-    q.onsuccess=()=>{
-      res(q.result);
-    };
-
-    q.onerror=()=>{
-      rej(q.error);
+    request.onerror = () => {
+      reject(request.error);
     };
   });
 }
 
-function addHistory(h){
-  return new Promise((res,rej)=>{
 
-    const q=tx('history','readwrite').put(h);
+function delRange(id) {
 
-    q.onsuccess=()=>{
-      res();
+  return new Promise((resolve, reject) => {
+
+    const request =
+      tx(
+        'ranges',
+        'readwrite'
+      ).delete(id);
+
+    request.onsuccess = () => {
+      resolve();
     };
 
-    q.onerror=()=>{
-      rej(q.error);
-    };
-  });
-}
-
-function deleteHistory(id){
-  return new Promise((res,rej)=>{
-
-    const q=tx('history','readwrite').delete(id);
-
-    q.onsuccess=()=>{
-      res();
-    };
-
-    q.onerror=()=>{
-      rej(q.error);
+    request.onerror = () => {
+      reject(request.error);
     };
   });
 }
 
-async function trimHistory(){
 
-  const hs=(await getHistory())
-    .sort((a,b)=>new Date(b.date)-new Date(a.date));
+function getHistory() {
 
-  for(const h of hs.slice(5)){
-    await deleteHistory(h.id);
+  return new Promise((resolve, reject) => {
+
+    const request =
+      tx('history').getAll();
+
+    request.onsuccess = () => {
+      resolve(request.result || []);
+    };
+
+    request.onerror = () => {
+      reject(request.error);
+    };
+  });
+}
+
+
+function addHistory(history) {
+
+  return new Promise((resolve, reject) => {
+
+    const request =
+      tx(
+        'history',
+        'readwrite'
+      ).put(history);
+
+    request.onsuccess = () => {
+      resolve();
+    };
+
+    request.onerror = () => {
+      reject(request.error);
+    };
+  });
+}
+
+
+function deleteHistory(id) {
+
+  return new Promise((resolve, reject) => {
+
+    const request =
+      tx(
+        'history',
+        'readwrite'
+      ).delete(id);
+
+    request.onsuccess = () => {
+      resolve();
+    };
+
+    request.onerror = () => {
+      reject(request.error);
+    };
+  });
+}
+
+
+async function trimHistory() {
+
+  const history =
+    (await getHistory())
+      .sort(
+        (a, b) =>
+          new Date(b.date) -
+          new Date(a.date)
+      );
+
+  for (
+    const item of history.slice(5)
+  ) {
+
+    await deleteHistory(item.id);
   }
 }
 
@@ -205,14 +327,33 @@ async function trimHistory(){
    INITIALISATION
 ========================================================= */
 
-async function init(){
+async function init() {
+
+  if (
+    !window.indexedDB
+  ) {
+
+    throw new Error(
+      'IndexedDB non disponible.'
+    );
+  }
 
   await openDB();
 
-  if('serviceWorker' in navigator){
+  if (
+    'serviceWorker' in navigator
+  ) {
+
     navigator.serviceWorker
-      .register('./service-worker.js')
-      .catch(()=>{});
+      .register(
+        './service-worker.js'
+      )
+      .catch(error => {
+        console.warn(
+          'Service Worker :',
+          error
+        );
+      });
   }
 
   render();
@@ -223,49 +364,107 @@ async function init(){
    NAVIGATION
 ========================================================= */
 
-function nav(v){
+function nav(view) {
 
-  state.view=v;
-  state.editing=null;
-  state.selectedCells.clear();
+  if (
+    ![
+      'ranges',
+      'editor',
+      'setup',
+      'question',
+      'result'
+    ].includes(view)
+  ) {
+    return;
+  }
+
+  state.view = view;
+
+  if (
+    view !== 'editor'
+  ) {
+
+    state.editing = null;
+    state.selectedCells.clear();
+  }
 
   render();
 }
 
-function render(){
+
+function render() {
+
+  const app =
+    document.getElementById('app');
+
+  if (!app) {
+    return;
+  }
 
   document
-    .querySelectorAll('.bottom-nav button')
-    .forEach(b=>{
+    .querySelectorAll(
+      '.bottom-nav button'
+    )
+    .forEach(button => {
 
-      b.classList.toggle(
-        'active',
-        b.dataset.nav===state.view ||
+      const navValue =
+        button.dataset.nav;
+
+      const active =
+        navValue === state.view ||
+
         (
-          state.view==='editor' &&
-          b.dataset.nav==='ranges'
+          state.view === 'editor' &&
+          navValue === 'ranges'
         ) ||
+
         (
-          ['question','result','setup'].includes(state.view) &&
-          b.dataset.nav==='drill'
-        )
+          [
+            'setup',
+            'question',
+            'result'
+          ].includes(state.view) &&
+          navValue === 'drill'
+        );
+
+      button.classList.toggle(
+        'active',
+        active
       );
     });
 
-  const app=document.getElementById('app');
 
-  if(state.view==='ranges'){
+  if (
+    state.view === 'ranges'
+  ) {
+
     renderRanges(app);
+
+    return;
   }
-  else if(state.view==='editor'){
+
+
+  if (
+    state.view === 'editor'
+  ) {
+
     renderEditor(app);
+
+    return;
   }
-  else if(state.view==='setup'){
+
+
+  if (
+    state.view === 'setup'
+  ) {
+
     renderSetup(app);
+
+    return;
   }
-  else{
-    renderDrill(app);
-  }
+
+
+  renderDrill(app);
 }
 
 
@@ -273,24 +472,35 @@ function render(){
    GROUPES DE RANGES
 ========================================================= */
 
-function groupRangesByPosition(ranges){
+function groupRangesByPosition(ranges) {
 
-  const groups={};
+  const groups = {};
 
-  for(const r of ranges){
+  for (
+    const range of ranges
+  ) {
 
-    const position=
-      (r.informations?.position || '').trim() ||
+    const position =
+      (
+        range.informations?.position ||
+        ''
+      ).trim() ||
       'Sans position';
 
-    if(!groups[position]){
-      groups[position]=[];
+    if (
+      !groups[position]
+    ) {
+
+      groups[position] = [];
     }
 
-    groups[position].push(r);
+    groups[position].push(
+      range
+    );
   }
 
-  const order=[
+
+  const order = [
     'UTG',
     'HJ',
     'CO',
@@ -300,38 +510,76 @@ function groupRangesByPosition(ranges){
     'Sans position'
   ];
 
-  return Object.entries(groups).sort(([a],[b])=>{
 
-    const ia=order.indexOf(a);
-    const ib=order.indexOf(b);
+  return Object.entries(
+    groups
+  ).sort(
+    ([a], [b]) => {
 
-    if(ia!==-1 && ib!==-1){
-      return ia-ib;
+      const indexA =
+        order.indexOf(a);
+
+      const indexB =
+        order.indexOf(b);
+
+
+      if (
+        indexA !== -1 &&
+        indexB !== -1
+      ) {
+
+        return indexA - indexB;
+      }
+
+
+      if (
+        indexA !== -1
+      ) {
+
+        return -1;
+      }
+
+
+      if (
+        indexB !== -1
+      ) {
+
+        return 1;
+      }
+
+
+      return a.localeCompare(
+        b,
+        'fr'
+      );
     }
-
-    if(ia!==-1){
-      return -1;
-    }
-
-    if(ib!==-1){
-      return 1;
-    }
-
-    return a.localeCompare(b,'fr');
-  });
+  );
 }
 
-function positionGroupHTML(position,ranges,options={}){
 
-  const drillMode=options.drillMode||false;
+function positionGroupHTML(
+  position,
+  ranges,
+  options = {}
+) {
 
-  const groupId=
-    'group_'+position
-      .replace(/[^a-zA-Z0-9]/g,'_');
+  const drillMode =
+    options.drillMode === true;
 
-  if(drillMode){
+
+  const groupId =
+    'group_' +
+    position
+      .replace(
+        /[^a-zA-Z0-9]/g,
+        '_'
+      );
+
+
+  if (drillMode) {
 
     return `
+
       <section class="range-group">
 
         <div
@@ -341,13 +589,17 @@ function positionGroupHTML(position,ranges,options={}){
 
           <div class="group-title">
 
-            <span class="group-arrow">▶</span>
+            <span class="group-arrow">
+              ▶
+            </span>
 
-            <b>${esc(position)}</b>
+            <b>
+              ${esc(position)}
+            </b>
 
             <span class="muted">
               · ${ranges.length}
-              range${ranges.length>1?'s':''}
+              range${ranges.length > 1 ? 's' : ''}
             </span>
 
           </div>
@@ -367,42 +619,50 @@ function positionGroupHTML(position,ranges,options={}){
 
         </div>
 
+
         <div
           class="range-group-content"
           id="${esc(groupId)}"
           hidden
         >
 
-          ${ranges.map(r=>`
+          ${
+            ranges.map(range => `
 
-            <label class="check-row drill-range-row">
+              <label class="check-row drill-range-row">
 
-              <input
-                type="checkbox"
-                class="range-check"
-                value="${esc(r.id)}"
-              >
+                <input
+                  type="checkbox"
+                  class="range-check"
+                  value="${esc(range.id)}"
+                >
 
-              <span class="grow">
+                <span class="grow">
 
-                <b>${esc(r.nom)}</b>
+                  <b>
+                    ${esc(range.nom)}
+                  </b>
 
-                <br>
+                  <br>
 
-                <small class="muted">
-                  ${
-                    Object
-                      .values(r.mains)
-                      .filter(x=>x.length)
-                      .length
-                  }/169 définies
-                </small>
+                  <small class="muted">
+                    ${
+                      Object
+                        .values(range.mains)
+                        .filter(
+                          value =>
+                            value.length
+                        )
+                        .length
+                    }/169 définies
+                  </small>
 
-              </span>
+                </span>
 
-            </label>
+              </label>
 
-          `).join('')}
+            `).join('')
+          }
 
         </div>
 
@@ -410,7 +670,9 @@ function positionGroupHTML(position,ranges,options={}){
     `;
   }
 
+
   return `
+
     <section class="range-group">
 
       <div
@@ -420,18 +682,23 @@ function positionGroupHTML(position,ranges,options={}){
 
         <div class="group-title">
 
-          <span class="group-arrow">▶</span>
+          <span class="group-arrow">
+            ▶
+          </span>
 
-          <b>${esc(position)}</b>
+          <b>
+            ${esc(position)}
+          </b>
 
           <span class="muted">
             · ${ranges.length}
-            range${ranges.length>1?'s':''}
+            range${ranges.length > 1 ? 's' : ''}
           </span>
 
         </div>
 
       </div>
+
 
       <div
         class="range-group-content"
@@ -439,82 +706,94 @@ function positionGroupHTML(position,ranges,options={}){
         hidden
       >
 
-        ${ranges.map(r=>`
+        ${
+          ranges.map(range => `
 
-          <section class="card range-card">
+            <section class="card range-card">
 
-            <div class="range-main">
+              <div class="range-main">
 
-              <div class="range-name">
-                ${esc(r.nom)}
-              </div>
+                <div class="range-name">
+                  ${esc(range.nom)}
+                </div>
 
-              <div class="chips">
+                <div class="chips">
 
-                ${
-                  r.informations?.position
-                  ? `
-                    <span class="chip">
-                      ${esc(r.informations.position)}
-                    </span>
-                  `
-                  : ''
-                }
-
-                ${
-                  r.informations?.stack
-                  ? `
-                    <span class="chip">
-                      ${esc(r.informations.stack)}
-                    </span>
-                  `
-                  : ''
-                }
-
-                ${
-                  r.informations?.situation
-                  ? `
-                    <span class="chip">
-                      ${esc(r.informations.situation)}
-                    </span>
-                  `
-                  : ''
-                }
-
-                <span class="chip">
                   ${
-                    Object
-                      .values(r.mains)
-                      .filter(x=>x.length)
-                      .length
-                  }/169
-                </span>
+                    range.informations?.position
+                      ? `
+                        <span class="chip">
+                          ${esc(
+                            range.informations.position
+                          )}
+                        </span>
+                      `
+                      : ''
+                  }
+
+                  ${
+                    range.informations?.stack
+                      ? `
+                        <span class="chip">
+                          ${esc(
+                            range.informations.stack
+                          )}
+                        </span>
+                      `
+                      : ''
+                  }
+
+                  ${
+                    range.informations?.situation
+                      ? `
+                        <span class="chip">
+                          ${esc(
+                            range.informations.situation
+                          )}
+                        </span>
+                      `
+                      : ''
+                  }
+
+                  <span class="chip">
+                    ${
+                      Object
+                        .values(range.mains)
+                        .filter(
+                          value =>
+                            value.length
+                        )
+                        .length
+                    }/169
+                  </span>
+
+                </div>
 
               </div>
 
-            </div>
 
-            <div class="actions">
+              <div class="actions">
 
-              <button
-                class="btn secondary edit"
-                data-id="${esc(r.id)}"
-              >
-                Modifier
-              </button>
+                <button
+                  class="btn secondary edit"
+                  data-id="${esc(range.id)}"
+                >
+                  Modifier
+                </button>
 
-              <button
-                class="btn danger delete"
-                data-id="${esc(r.id)}"
-              >
-                ×
-              </button>
+                <button
+                  class="btn danger delete"
+                  data-id="${esc(range.id)}"
+                >
+                  ×
+                </button>
 
-            </div>
+              </div>
 
-          </section>
+            </section>
 
-        `).join('')}
+          `).join('')
+        }
 
       </div>
 
@@ -527,48 +806,87 @@ function positionGroupHTML(position,ranges,options={}){
    EXPORT JSON
 ========================================================= */
 
-function downloadJSON(data,filename){
+function downloadJSON(
+  data,
+  filename
+) {
 
-  const blob=new Blob(
-    [JSON.stringify(data,null,2)],
-    {
-      type:'application/json'
-    }
+  const blob =
+    new Blob(
+      [
+        JSON.stringify(
+          data,
+          null,
+          2
+        )
+      ],
+      {
+        type:
+          'application/json'
+      }
+    );
+
+
+  const url =
+    URL.createObjectURL(
+      blob
+    );
+
+
+  const link =
+    document.createElement(
+      'a'
+    );
+
+  link.href = url;
+  link.download = filename;
+
+  document.body.appendChild(
+    link
   );
 
-  const url=URL.createObjectURL(blob);
+  link.click();
 
-  const a=document.createElement('a');
+  link.remove();
 
-  a.href=url;
-  a.download=filename;
-
-  document.body.appendChild(a);
-
-  a.click();
-
-  a.remove();
-
-  URL.revokeObjectURL(url);
+  URL.revokeObjectURL(
+    url
+  );
 }
 
-async function exportRanges(){
 
-  const ranges=await getRanges();
+async function exportRanges() {
 
-  if(!ranges.length){
+  const ranges =
+    await getRanges();
 
-    alert('Aucune range à exporter.');
+  if (
+    !ranges.length
+  ) {
+
+    alert(
+      'Aucune range à exporter.'
+    );
 
     return;
   }
 
-  const backup={
-    app:'PokerRangeDrill',
-    version:1,
-    exportedAt:new Date().toISOString(),
-    ranges:ranges
+
+  const backup = {
+
+    app:
+      'PokerRangeDrill',
+
+    version:
+      1,
+
+    exportedAt:
+      new Date().toISOString(),
+
+    ranges:
+      ranges
   };
+
 
   downloadJSON(
     backup,
@@ -581,131 +899,196 @@ async function exportRanges(){
    IMPORT JSON
 ========================================================= */
 
-function normalizeImportedRange(r){
+function normalizeImportedRange(range) {
 
-  if(!r || typeof r!=='object'){
+  if (
+    !range ||
+    typeof range !== 'object'
+  ) {
     return null;
   }
 
-  if(typeof r.nom!=='string'){
+
+  if (
+    typeof range.nom !== 'string'
+  ) {
     return null;
   }
 
-  if(
-    !r.informations ||
-    typeof r.informations!=='object'
-  ){
+
+  if (
+    !range.informations ||
+    typeof range.informations !== 'object'
+  ) {
     return null;
   }
 
-  if(!Array.isArray(r.etiquettes)){
+
+  if (
+    !Array.isArray(
+      range.etiquettes
+    )
+  ) {
     return null;
   }
 
-  if(
-    !r.mains ||
-    typeof r.mains!=='object'
-  ){
+
+  if (
+    !range.mains ||
+    typeof range.mains !== 'object'
+  ) {
     return null;
   }
 
-  const range={
+
+  const normalized = {
 
     id:
-      typeof r.id==='string' && r.id
-        ? r.id
+      typeof range.id === 'string' &&
+      range.id
+        ? range.id
         : uid('range'),
 
-    nom:r.nom,
+    nom:
+      range.nom,
 
-    informations:{
-      position:String(
-        r.informations.position ?? ''
-      ),
+    informations: {
 
-      stack:String(
-        r.informations.stack ?? ''
-      ),
+      position:
+        String(
+          range.informations.position ??
+          ''
+        ),
 
-      situation:String(
-        r.informations.situation ?? ''
-      )
+      stack:
+        String(
+          range.informations.stack ??
+          ''
+        ),
+
+      situation:
+        String(
+          range.informations.situation ??
+          ''
+        )
     },
 
-    etiquettes:[],
+    etiquettes: [],
 
-    mains:Object.fromEntries(
-      allHands().map(h=>[h,[]])
-    )
+    mains:
+      Object.fromEntries(
+        allHands().map(
+          hand => [
+            hand,
+            []
+          ]
+        )
+      )
   };
 
-  const labelIds=new Set();
 
-  for(const label of r.etiquettes){
+  const labelIds =
+    new Set();
 
-    if(
+
+  for (
+    const label of range.etiquettes
+  ) {
+
+    if (
       !label ||
-      typeof label.nom!=='string' ||
+      typeof label.nom !== 'string' ||
       !label.nom.trim()
-    ){
+    ) {
       continue;
     }
 
-    const id=
-      typeof label.id==='string' && label.id
+
+    const id =
+      typeof label.id === 'string' &&
+      label.id
         ? label.id
         : uid('label');
 
-    if(labelIds.has(id)){
+
+    if (
+      labelIds.has(id)
+    ) {
       continue;
     }
 
+
     labelIds.add(id);
 
-    range.etiquettes.push({
 
-      id:id,
+    normalized.etiquettes.push({
 
-      nom:label.nom,
+      id:
+
+        id,
+
+      nom:
+        label.nom,
 
       couleur:
-        typeof label.couleur==='string'
+        typeof label.couleur === 'string'
           ? label.couleur
           : '#111827'
-
     });
   }
 
-  const validLabels=new Set(
-    range.etiquettes.map(l=>l.id)
-  );
 
-  for(const h of allHands()){
+  const validLabels =
+    new Set(
+      normalized.etiquettes.map(
+        label => label.id
+      )
+    );
 
-    const values=
-      Array.isArray(r.mains[h])
-        ? r.mains[h]
+
+  for (
+    const hand of allHands()
+  ) {
+
+    const values =
+      Array.isArray(
+        range.mains[hand]
+      )
+        ? range.mains[hand]
         : [];
 
-    range.mains[h]=values
-      .filter(id=>validLabels.has(id))
-      .slice(0,2);
+
+    normalized.mains[hand] =
+      values
+        .filter(
+          id =>
+            validLabels.has(id)
+        )
+        .slice(0, 2);
   }
 
-  return range;
+
+  return normalized;
 }
 
-async function importRangesFromFile(file,mode){
+
+async function importRangesFromFile(
+  file,
+  mode
+) {
 
   let data;
 
-  try{
 
-    const text=await file.text();
+  try {
 
-    data=JSON.parse(text);
+    const text =
+      await file.text();
 
-  }catch(e){
+    data =
+      JSON.parse(text);
+
+  } catch (error) {
 
     alert(
       'Le fichier sélectionné n’est pas un fichier JSON valide.'
@@ -714,12 +1097,16 @@ async function importRangesFromFile(file,mode){
     return;
   }
 
-  const imported=
+
+  const imported =
     Array.isArray(data)
       ? data
       : data?.ranges;
 
-  if(!Array.isArray(imported)){
+
+  if (
+    !Array.isArray(imported)
+  ) {
 
     alert(
       'Ce fichier ne contient pas de ranges PokerRangeDrill.'
@@ -728,12 +1115,18 @@ async function importRangesFromFile(file,mode){
     return;
   }
 
-  const ranges=
+
+  const ranges =
     imported
-      .map(normalizeImportedRange)
+      .map(
+        normalizeImportedRange
+      )
       .filter(Boolean);
 
-  if(!ranges.length){
+
+  if (
+    !ranges.length
+  ) {
 
     alert(
       'Aucune range valide n’a été trouvée dans le fichier.'
@@ -742,70 +1135,110 @@ async function importRangesFromFile(file,mode){
     return;
   }
 
-  const existing=await getRanges();
 
-  const existingIds=new Set(
-    existing.map(r=>r.id)
-  );
+  const existing =
+    await getRanges();
 
-  let added=0;
-  let replaced=0;
-  let skipped=0;
-  let duplicated=0;
 
-  for(const range of ranges){
+  const existingIds =
+    new Set(
+      existing.map(
+        range => range.id
+      )
+    );
 
-    if(!existingIds.has(range.id)){
 
-      await putRange(range);
+  let added = 0;
+  let replaced = 0;
+  let skipped = 0;
+  let duplicated = 0;
 
-      existingIds.add(range.id);
+
+  for (
+    const range of ranges
+  ) {
+
+    if (
+      !existingIds.has(
+        range.id
+      )
+    ) {
+
+      await putRange(
+        range
+      );
+
+      existingIds.add(
+        range.id
+      );
 
       added++;
 
       continue;
     }
 
-    if(mode==='replace'){
 
-      await putRange(range);
+    if (
+      mode === 'replace'
+    ) {
+
+      await putRange(
+        range
+      );
 
       replaced++;
 
-    }
-    else if(mode==='keep'){
+    } else if (
+      mode === 'keep'
+    ) {
 
       skipped++;
 
-    }
-    else if(mode==='duplicate'){
+    } else if (
+      mode === 'duplicate'
+    ) {
 
-      const copy=structuredClone(range);
+      const copy =
+        structuredClone(
+          range
+        );
 
-      copy.id=uid('range');
+      copy.id =
+        uid('range');
 
-      await putRange(copy);
+      await putRange(
+        copy
+      );
 
       duplicated++;
     }
   }
 
+
   render();
 
+
   alert(
-    `Import terminé.\n\n`+
-    `Nouvelles ranges : ${added}\n`+
-    `Ranges remplacées : ${replaced}\n`+
-    `Ranges conservées : ${skipped}\n`+
+    `Import terminé.\n\n` +
+    `Nouvelles ranges : ${added}\n` +
+    `Ranges remplacées : ${replaced}\n` +
+    `Ranges conservées : ${skipped}\n` +
     `Copies créées : ${duplicated}`
   );
 }
 
-async function openImportMode(file){
 
-  const existing=await getRanges();
+async function openImportMode(
+  file
+) {
 
-  if(!existing.length){
+  const existing =
+    await getRanges();
+
+
+  if (
+    !existing.length
+  ) {
 
     await importRangesFromFile(
       file,
@@ -815,62 +1248,81 @@ async function openImportMode(file){
     return;
   }
 
-  const choice=prompt(
-    `Des ranges existent déjà dans l'application.\n\n`+
-    `Que veux-tu faire lorsqu'une range importée possède le même identifiant ?\n\n`+
-    `1 = Remplacer la range existante\n`+
-    `2 = Conserver la range existante\n`+
-    `3 = Garder les deux\n\n`+
-    `Entre 1, 2 ou 3.`
-  );
 
-  if(choice==='1'){
+  const choice =
+    prompt(
+      `Des ranges existent déjà dans l'application.\n\n` +
+      `Que veux-tu faire lorsqu'une range importée possède le même identifiant ?\n\n` +
+      `1 = Remplacer la range existante\n` +
+      `2 = Conserver la range existante\n` +
+      `3 = Garder les deux\n\n` +
+      `Entre 1, 2 ou 3.`
+    );
+
+
+  if (
+    choice === '1'
+  ) {
 
     await importRangesFromFile(
       file,
       'replace'
     );
 
-  }
-  else if(choice==='2'){
+  } else if (
+    choice === '2'
+  ) {
 
     await importRangesFromFile(
       file,
       'keep'
     );
 
-  }
-  else if(choice==='3'){
+  } else if (
+    choice === '3'
+  ) {
 
     await importRangesFromFile(
       file,
       'duplicate'
     );
 
-  }
-  else{
+  } else {
 
-    alert('Import annulé.');
+    alert(
+      'Import annulé.'
+    );
   }
 }
 
-function importRanges(){
 
-  const input=document.createElement('input');
+function importRanges() {
 
-  input.type='file';
-  input.accept='.json,application/json';
+  const input =
+    document.createElement(
+      'input'
+    );
 
-  input.onchange=()=>{
+  input.type = 'file';
 
-    const file=input.files?.[0];
+  input.accept =
+    '.json,application/json';
 
-    if(!file){
+
+  input.onchange = () => {
+
+    const file =
+      input.files?.[0];
+
+    if (!file) {
       return;
     }
 
-    openImportMode(file);
+    openImportMode(
+      file
+    );
   };
+
 
   input.click();
 }
@@ -880,43 +1332,49 @@ function importRanges(){
    IMPORT EXCEL
 ========================================================= */
 
-function cleanExcelValue(value){
+function createImportedLabel(
+  range,
+  action
+) {
 
-  if(
-    value===null ||
-    value===undefined
-  ){
-    return '';
-  }
-
-  return String(value).trim();
-}
+  action =
+    cleanExcelValue(
+      action
+    );
 
 
-function createImportedLabel(range,action){
-
-  action=cleanExcelValue(action);
-
-  if(!action){
+  if (!action) {
     return null;
   }
 
-  const existing=
+
+  const existing =
     range.etiquettes.find(
-      l=>
-        l.nom.trim().toLowerCase()===
-        action.toLowerCase()
+      label =>
+        label.nom
+          .trim()
+          .toLowerCase() ===
+        action
+          .trim()
+          .toLowerCase()
     );
 
-  if(existing){
+
+  if (
+    existing
+  ) {
+
     return existing.id;
   }
 
-  const label={
 
-    id:uid('label'),
+  const label = {
 
-    nom:action,
+    id:
+      uid('label'),
+
+    nom:
+      action,
 
     couleur:
       COLORS[
@@ -925,34 +1383,48 @@ function createImportedLabel(range,action){
       ]
   };
 
-  range.etiquettes.push(label);
+
+  range.etiquettes.push(
+    label
+  );
+
 
   return label.id;
 }
 
 
-function convertExcelSheetToRange(sheet){
+function convertExcelSheetToRange(
+  sheet
+) {
 
-  if(typeof XLSX==='undefined'){
+  if (
+    typeof XLSX === 'undefined'
+  ) {
+
     return null;
   }
 
-  const data=
+
+  const data =
     XLSX.utils.sheet_to_json(
       sheet,
       {
-        header:1,
-        defval:''
+        header: 1,
+        defval: ''
       }
     );
 
-  if(!data.length){
+
+  if (
+    !data.length
+  ) {
+
     return null;
   }
 
 
   /*
-    FORMAT ATTENDU
+    Structure attendue :
 
     A1 = Nom de la range
     B1 = valeur
@@ -966,122 +1438,132 @@ function convertExcelSheetToRange(sheet){
     A4 = Situation
     B4 = valeur
 
-    Puis matrice :
-
-    D3 = AA
-    E3 = action
-
-    F3 = AKs
-    G3 = action
-
+    À partir de D :
+    D = main
+    E = action
+    F = main
+    G = action
     etc.
 
-    13 lignes × 13 colonnes
+    Les 13 lignes de mains
+    vont de la ligne 3 à la ligne 15.
   */
 
 
-  const nom=
+  const nom =
     cleanExcelValue(
       data[0]?.[1]
     );
 
-  const position=
+  const position =
     cleanExcelValue(
       data[1]?.[1]
     );
 
-  const stack=
+  const stack =
     cleanExcelValue(
       data[2]?.[1]
     );
 
-  const situation=
+  const situation =
     cleanExcelValue(
       data[3]?.[1]
     );
 
 
-  if(!nom){
+  if (!nom) {
     return null;
   }
 
 
-  const range={
+  const range = {
 
-    id:uid('range'),
+    id:
+      uid('range'),
 
-    nom:nom,
+    nom:
+      nom,
 
-    informations:{
-      position:position,
-      stack:stack,
-      situation:situation
+    informations: {
+
+      position:
+        position,
+
+      stack:
+        stack,
+
+      situation:
+        situation
     },
 
-    etiquettes:[],
+    etiquettes: [],
 
-    mains:Object.fromEntries(
-      allHands().map(
-        h=>[h,[]]
+    mains:
+      Object.fromEntries(
+        allHands().map(
+          hand => [
+            hand,
+            []
+          ]
+        )
       )
-    )
   };
 
 
   /*
-    Les mains commencent à la ligne 3
-    du fichier Excel.
+    Excel :
 
-    En index JavaScript :
-    ligne Excel 3 = data[2]
+    colonne D = index 3
+    colonne E = index 4
 
-    Les mains commencent à la colonne D.
-
-    En index JavaScript :
-    colonne D = 3
-
-    Chaque main occupe 2 colonnes :
-    D/E
-    F/G
-    H/I
+    puis F/G,
+    H/I,
     etc.
+
+    13 colonnes de mains
+    = 26 colonnes Excel.
   */
 
 
-  for(
-    let row=2;
-    row<15;
+  for (
+    let row = 2;
+    row < 15;
     row++
-  ){
+  ) {
 
-    for(
-      let col=3;
-      col<29;
-      col+=2
-    ){
+    for (
+      let col = 3;
+      col < 29;
+      col += 2
+    ) {
 
-      const main=
+      const main =
         cleanExcelValue(
           data[row]?.[col]
         );
 
-      const action=
+      const action =
         cleanExcelValue(
-          data[row]?.[col+1]
+          data[row]?.[col + 1]
         );
 
 
-      if(!main){
+      if (!main) {
         continue;
       }
 
-      if(
-        !allHands().includes(main)
-      ){
+
+      if (
+        !allHands().includes(
+          main
+        )
+      ) {
+
         continue;
       }
 
-      if(!action){
+
+      if (!action) {
         continue;
       }
 
@@ -1089,51 +1571,65 @@ function convertExcelSheetToRange(sheet){
       /*
         IMPORTANT :
 
-        "+" est le séparateur entre
-        deux étiquettes.
+        "+" est utilisé comme séparateur
+        pour deux étiquettes.
 
         Exemple :
-        Raise + Call
+        Raise/Call + Shove
 
         En revanche :
-
-        Raise/Call
         Raise/Fold
+        Raise/Call
 
-        restent chacun une seule
-        étiquette.
+        restent une seule étiquette.
       */
 
-      const finalActions=
+
+      const finalActions =
         action
           .split(/\s*\+\s*/)
-          .map(x=>x.trim())
+          .map(
+            value =>
+              value.trim()
+          )
           .filter(Boolean)
-          .slice(0,2);
+          .slice(0, 2);
 
 
-      const labelIds=[];
+      const labelIds = [];
 
 
-      for(const labelName of finalActions){
+      for (
+        const labelName of finalActions
+      ) {
 
-        if(labelIds.length>=2){
+        if (
+          labelIds.length >= 2
+        ) {
           break;
         }
 
-        const labelId=
+
+        const labelId =
           createImportedLabel(
             range,
             labelName
           );
 
-        if(labelId){
-          labelIds.push(labelId);
+
+        if (
+          labelId
+        ) {
+
+          labelIds.push(
+            labelId
+          );
         }
       }
 
 
-      range.mains[main]=labelIds;
+      range.mains[main] =
+        labelIds;
     }
   }
 
@@ -1142,14 +1638,17 @@ function convertExcelSheetToRange(sheet){
 }
 
 
-async function importExcelFile(file){
+async function importExcelFile(
+  file
+) {
 
-  if(typeof XLSX==='undefined'){
+  if (
+    typeof XLSX === 'undefined'
+  ) {
 
     alert(
-      'Le lecteur Excel n’est pas disponible.\n\n'+
-      'Vérifie que cette ligne est bien présente dans index.html :\n\n'+
-      'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'
+      'Le lecteur Excel n’est pas disponible.\n\n' +
+      'Vérifie que SheetJS est bien chargé dans index.html.'
     );
 
     return;
@@ -1159,22 +1658,24 @@ async function importExcelFile(file){
   let workbook;
 
 
-  try{
+  try {
 
-    const buffer=
+    const buffer =
       await file.arrayBuffer();
 
-    workbook=
+    workbook =
       XLSX.read(
         buffer,
         {
-          type:'array'
+          type: 'array'
         }
       );
 
-  }catch(error){
+  } catch (error) {
 
-    console.error(error);
+    console.error(
+      error
+    );
 
     alert(
       'Impossible de lire ce fichier Excel.'
@@ -1184,66 +1685,87 @@ async function importExcelFile(file){
   }
 
 
-  const imported=[];
+  const imported = [];
 
 
-  /*
-    Chaque feuille Excel devient
-    une range.
-  */
-
-  for(
+  for (
     const sheetName of workbook.SheetNames
-  ){
+  ) {
 
-    const sheet=
-      workbook.Sheets[sheetName];
+    const sheet =
+      workbook.Sheets[
+        sheetName
+      ];
 
-    const range=
-      convertExcelSheetToRange(sheet);
 
-    if(range){
-      imported.push(range);
+    const range =
+      convertExcelSheetToRange(
+        sheet
+      );
+
+
+    if (
+      range
+    ) {
+
+      imported.push(
+        range
+      );
     }
   }
 
 
-  if(!imported.length){
+  if (
+    !imported.length
+  ) {
 
     alert(
-      'Aucune range valide n’a été trouvée dans le fichier Excel.\n\n'+
-      'Vérifie que ton fichier respecte le modèle prévu.'
+      'Aucune range valide n’a été trouvée dans le fichier Excel.'
     );
 
     return;
   }
 
 
-  const existing=
+  const existing =
     await getRanges();
 
-  const existingIds=
+
+  const existingIds =
     new Set(
-      existing.map(r=>r.id)
+      existing.map(
+        range => range.id
+      )
     );
 
 
-  let added=0;
+  let added = 0;
 
 
-  for(const range of imported){
+  for (
+    const range of imported
+  ) {
 
-    while(
-      existingIds.has(range.id)
-    ){
+    while (
+      existingIds.has(
+        range.id
+      )
+    ) {
 
-      range.id=uid('range');
+      range.id =
+        uid('range');
     }
 
 
-    await putRange(range);
+    await putRange(
+      range
+    );
 
-    existingIds.add(range.id);
+
+    existingIds.add(
+      range.id
+    );
+
 
     added++;
   }
@@ -1253,40 +1775,45 @@ async function importExcelFile(file){
 
 
   alert(
-    `Import Excel terminé.\n\n`+
-    `${added} range`+
-    `${added>1?'s':''}`+
-    ` importée`+
-    `${added>1?'s':''}.`
+    `Import Excel terminé.\n\n` +
+    `${added} range` +
+    `${added > 1 ? 's' : ''} ` +
+    `importée` +
+    `${added > 1 ? 's' : ''}.`
   );
 }
 
 
-function importExcel(){
+function importExcel() {
 
-  const input=
-    document.createElement('input');
+  const input =
+    document.createElement(
+      'input'
+    );
 
 
-  input.type='file';
+  input.type = 'file';
 
 
-  input.accept=
-    '.xlsx,.xls,'+
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,'+
+  input.accept =
+    '.xlsx,.xls,' +
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,' +
     'application/vnd.ms-excel';
 
 
-  input.onchange=()=>{
+  input.onchange = () => {
 
-    const file=
+    const file =
       input.files?.[0];
 
-    if(!file){
+    if (!file) {
       return;
     }
 
-    importExcelFile(file);
+
+    importExcelFile(
+      file
+    );
   };
 
 
@@ -1298,26 +1825,36 @@ function importExcel(){
    MES RANGES
 ========================================================= */
 
-async function renderRanges(app){
+async function renderRanges(app) {
 
-  const rs=await getRanges();
+  const ranges =
+    await getRanges();
 
-  const hs=
+
+  const history =
     (await getHistory())
       .sort(
-        (a,b)=>new Date(b.date)-new Date(a.date)
+        (a, b) =>
+          new Date(b.date) -
+          new Date(a.date)
       );
 
-  const groups=
-    groupRangesByPosition(rs);
 
-  app.innerHTML=`
+  const groups =
+    groupRangesByPosition(
+      ranges
+    );
+
+
+  app.innerHTML = `
 
     <main class="app">
 
       <div class="top">
 
-        <h1>Mes ranges</h1>
+        <h1>
+          Mes ranges
+        </h1>
 
         <button
           class="btn"
@@ -1327,6 +1864,7 @@ async function renderRanges(app){
         </button>
 
       </div>
+
 
       <div class="toolbar backup-toolbar">
 
@@ -1353,48 +1891,59 @@ async function renderRanges(app){
 
       </div>
 
+
       ${
-        rs.length
-        ?
-        `
-          <div class="range-groups">
+        ranges.length
 
-            ${
-              groups
-                .map(
-                  ([position,ranges])=>
-                    positionGroupHTML(
-                      position,
-                      ranges
-                    )
-                )
-                .join('')
-            }
+          ?
 
-          </div>
-        `
-        :
-        `
-          <div class="card empty">
+          `
 
-            <div class="big">
-              Aucune range
+            <div class="range-groups">
+
+              ${
+                groups
+                  .map(
+                    ([position, groupRanges]) =>
+                      positionGroupHTML(
+                        position,
+                        groupRanges
+                      )
+                  )
+                  .join('')
+              }
+
             </div>
 
-            <p class="muted">
-              Crée ta première range pour commencer tes drills.
-            </p>
+          `
 
-            <button
-              class="btn"
-              id="emptyNew"
-            >
-              Créer une range
-            </button>
+          :
 
-          </div>
-        `
+          `
+
+            <div class="card empty">
+
+              <div class="big">
+                Aucune range
+              </div>
+
+              <p class="muted">
+                Crée ta première range
+                pour commencer tes drills.
+              </p>
+
+              <button
+                class="btn"
+                id="emptyNew"
+              >
+                Créer une range
+              </button>
+
+            </div>
+
+          `
       }
+
 
       <div class="card">
 
@@ -1405,67 +1954,96 @@ async function renderRanges(app){
           Historique
         </div>
 
+
         ${
-          hs.length
-          ?
-          hs.map(h=>{
+          history.length
 
-            const pct=
-              Math.round(
-                h.score/h.total*100
-              );
+            ?
 
-            const d=new Date(h.date);
+            history
+              .map(item => {
 
-            return `
+                const percentage =
+                  item.total
+                    ? Math.round(
+                        item.score /
+                        item.total *
+                        100
+                      )
+                    : 0;
 
-              <div class="history-item">
 
-                <div class="history-main">
+                const date =
+                  new Date(
+                    item.date
+                  );
 
-                  <div>
 
-                    <b>
-                      ${d.toLocaleDateString('fr-FR')}
-                      à
-                      ${d.toLocaleTimeString(
-                        'fr-FR',
-                        {
-                          hour:'2-digit',
-                          minute:'2-digit'
-                        }
-                      )}
-                    </b>
+                return `
 
-                    <br>
+                  <div class="history-item">
 
-                    <span class="muted">
-                      ${h.total} mains
-                    </span>
+                    <div class="history-main">
+
+                      <div>
+
+                        <b>
+                          ${
+                            date.toLocaleDateString(
+                              'fr-FR'
+                            )
+                          }
+
+                          à
+
+                          ${
+                            date.toLocaleTimeString(
+                              'fr-FR',
+                              {
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              }
+                            )
+                          }
+                        </b>
+
+                        <br>
+
+                        <span class="muted">
+                          ${item.total} mains
+                        </span>
+
+                      </div>
+
+
+                      <div class="history-score">
+                        ${item.score}/${item.total}
+                      </div>
+
+                    </div>
+
+
+                    <div>
+                      <b>
+                        ${percentage} % de réussite
+                      </b>
+                    </div>
 
                   </div>
 
-                  <div class="history-score">
-                    ${h.score}/${h.total}
-                  </div>
+                `;
+              })
+              .join('')
 
-                </div>
+            :
 
-                <div>
-                  <b>${pct} % de réussite</b>
-                </div>
+            `
 
+              <div class="muted">
+                Aucun drill réalisé pour le moment.
               </div>
 
-            `;
-
-          }).join('')
-          :
-          `
-            <div class="muted">
-              Aucun drill réalisé pour le moment.
-            </div>
-          `
+            `
         }
 
       </div>
@@ -1475,23 +2053,29 @@ async function renderRanges(app){
 
 
   document
-    .getElementById('newRange')
+    .getElementById(
+      'newRange'
+    )
     ?.addEventListener(
       'click',
-      ()=>openEditor()
+      () => openEditor()
     );
 
 
   document
-    .getElementById('emptyNew')
+    .getElementById(
+      'emptyNew'
+    )
     ?.addEventListener(
       'click',
-      ()=>openEditor()
+      () => openEditor()
     );
 
 
   document
-    .getElementById('exportRanges')
+    .getElementById(
+      'exportRanges'
+    )
     ?.addEventListener(
       'click',
       exportRanges
@@ -1499,7 +2083,9 @@ async function renderRanges(app){
 
 
   document
-    .getElementById('importRanges')
+    .getElementById(
+      'importRanges'
+    )
     ?.addEventListener(
       'click',
       importRanges
@@ -1507,7 +2093,9 @@ async function renderRanges(app){
 
 
   document
-    .getElementById('importExcel')
+    .getElementById(
+      'importExcel'
+    )
     ?.addEventListener(
       'click',
       importExcel
@@ -1515,31 +2103,37 @@ async function renderRanges(app){
 
 
   app
-    .querySelectorAll('.range-group-header')
-    .forEach(header=>{
+    .querySelectorAll(
+      '.range-group-header'
+    )
+    .forEach(header => {
 
-      header.onclick=()=>{
+      header.onclick = () => {
 
-        const content=
+        const content =
           document.getElementById(
             header.dataset.group
           );
 
-        if(!content){
+
+        if (!content) {
           return;
         }
 
-        const arrow=
+
+        const arrow =
           header.querySelector(
             '.group-arrow'
           );
 
-        content.hidden=
+
+        content.hidden =
           !content.hidden;
 
-        if(arrow){
 
-          arrow.textContent=
+        if (arrow) {
+
+          arrow.textContent =
             content.hidden
               ? '▶'
               : '▼';
@@ -1549,126 +2143,201 @@ async function renderRanges(app){
 
 
   app
-    .querySelectorAll('.edit')
-    .forEach(b=>{
+    .querySelectorAll(
+      '.edit'
+    )
+    .forEach(button => {
 
-      b.onclick=async e=>{
+      button.onclick =
+        async event => {
 
-        e.stopPropagation();
+          event.stopPropagation();
 
-        const ranges=
-          await getRanges();
 
-        openEditor(
-          ranges.find(
-            r=>r.id===b.dataset.id
-          )
-        );
-      };
+          const all =
+            await getRanges();
+
+
+          const range =
+            all.find(
+              item =>
+                item.id ===
+                button.dataset.id
+            );
+
+
+          if (range) {
+
+            openEditor(
+              range
+            );
+          }
+        };
     });
 
 
   app
-    .querySelectorAll('.delete')
-    .forEach(b=>{
+    .querySelectorAll(
+      '.delete'
+    )
+    .forEach(button => {
 
-      b.onclick=async e=>{
+      button.onclick =
+        async event => {
 
-        e.stopPropagation();
+          event.stopPropagation();
 
-        if(
-          confirm(
-            'Supprimer cette range ?'
-          )
-        ){
+
+          if (
+            !confirm(
+              'Supprimer cette range ?'
+            )
+          ) {
+            return;
+          }
+
 
           await delRange(
-            b.dataset.id
+            button.dataset.id
           );
 
+
           render();
-        }
-      };
+        };
     });
 }
 
 
 /* =========================================================
-   EDITEUR DE RANGE
+   EDITEUR
 ========================================================= */
 
-function blankRange(){
+function blankRange() {
 
   return {
 
-    id:uid('range'),
+    id:
+      uid('range'),
 
-    nom:'',
+    nom:
+      '',
 
-    informations:{
-      position:'',
-      stack:'',
-      situation:''
+    informations: {
+
+      position:
+        '',
+
+      stack:
+        '',
+
+      situation:
+        ''
     },
 
-    etiquettes:[],
+    etiquettes: [],
 
-    mains:Object.fromEntries(
-      allHands().map(
-        h=>[h,[]]
+    mains:
+      Object.fromEntries(
+        allHands().map(
+          hand => [
+            hand,
+            []
+          ]
+        )
       )
-    )
   };
 }
 
-async function openEditor(range){
 
-  state.editing=
+function openEditor(range) {
+
+  state.editing =
     range
       ? structuredClone(range)
       : blankRange();
 
+
   state.selectedCells.clear();
 
-  state.view='editor';
+  state.view =
+    'editor';
 
   render();
 }
 
-function syncEditorFields(){
 
-  const r=state.editing;
+function syncEditorFields() {
 
-  if(!r){
+  const range =
+    state.editing;
+
+
+  if (!range) {
     return;
   }
 
-  r.nom=
-    document.getElementById('name')?.value
-    ??
-    r.nom;
 
-  r.informations.position=
-    document.getElementById('position')?.value
-    ??
-    r.informations.position;
+  const name =
+    document.getElementById(
+      'name'
+    );
 
-  r.informations.stack=
-    document.getElementById('stack')?.value
-    ??
-    r.informations.stack;
+  const position =
+    document.getElementById(
+      'position'
+    );
 
-  r.informations.situation=
-    document.getElementById('situation')?.value
-    ??
-    r.informations.situation;
+  const stack =
+    document.getElementById(
+      'stack'
+    );
+
+  const situation =
+    document.getElementById(
+      'situation'
+    );
+
+
+  if (name) {
+    range.nom =
+      name.value;
+  }
+
+
+  if (position) {
+    range.informations.position =
+      position.value;
+  }
+
+
+  if (stack) {
+    range.informations.stack =
+      stack.value;
+  }
+
+
+  if (situation) {
+    range.informations.situation =
+      situation.value;
+  }
 }
 
-function renderEditor(app){
 
-  const r=state.editing;
+function renderEditor(app) {
 
-  app.innerHTML=`
+  const range =
+    state.editing;
+
+
+  if (!range) {
+
+    nav('ranges');
+
+    return;
+  }
+
+
+  app.innerHTML = `
 
     <main class="app">
 
@@ -1682,7 +2351,11 @@ function renderEditor(app){
         </button>
 
         <h1>
-          ${r.nom?'Modifier':'Nouvelle range'}
+          ${
+            range.nom
+              ? 'Modifier'
+              : 'Nouvelle range'
+          }
         </h1>
 
         <span></span>
@@ -1701,7 +2374,7 @@ function renderEditor(app){
           <input
             class="input"
             id="name"
-            value="${esc(r.nom)}"
+            value="${esc(range.nom)}"
             placeholder="Ex. BTN Open"
           >
 
@@ -1718,7 +2391,7 @@ function renderEditor(app){
             class="input"
             id="position"
             value="${esc(
-              r.informations.position
+              range.informations.position
             )}"
             placeholder="BTN, UTG, BB..."
           >
@@ -1736,7 +2409,7 @@ function renderEditor(app){
             class="input"
             id="stack"
             value="${esc(
-              r.informations.stack
+              range.informations.stack
             )}"
             placeholder="40 BB"
           >
@@ -1754,7 +2427,7 @@ function renderEditor(app){
             class="input"
             id="situation"
             value="${esc(
-              r.informations.situation
+              range.informations.situation
             )}"
             placeholder="Open, vs BTN, 3-bet..."
           >
@@ -1777,43 +2450,55 @@ function renderEditor(app){
         <div class="labels">
 
           ${
-            r.etiquettes.map(l=>`
+            range.etiquettes.length
 
-              <div class="label-row">
+              ?
 
-                <i
-                  class="swatch"
-                  style="background:${l.couleur}"
-                ></i>
+              range.etiquettes
+                .map(label => `
 
-                <span class="grow">
-                  ${esc(l.nom)}
+                  <div class="label-row">
+
+                    <i
+                      class="swatch"
+                      style="background:${esc(
+                        label.couleur
+                      )}"
+                    ></i>
+
+                    <span class="grow">
+                      ${esc(label.nom)}
+                    </span>
+
+                    <button
+                      class="btn secondary rename"
+                      data-id="${esc(label.id)}"
+                    >
+                      Modifier
+                    </button>
+
+                    <button
+                      class="btn danger remove-label"
+                      data-id="${esc(label.id)}"
+                    >
+                      ×
+                    </button>
+
+                  </div>
+
+                `)
+                .join('')
+
+              :
+
+              `
+
+                <span class="muted">
+                  Crée des étiquettes comme
+                  Fold, Call, Raise, All-in…
                 </span>
 
-                <button
-                  class="btn secondary rename"
-                  data-id="${l.id}"
-                >
-                  Modifier
-                </button>
-
-                <button
-                  class="btn danger remove-label"
-                  data-id="${l.id}"
-                >
-                  ×
-                </button>
-
-              </div>
-
-            `).join('')
-            ||
-            `
-              <span class="muted">
-                Crée des étiquettes comme
-                Fold, Call, Raise, All-in…
-              </span>
-            `
+              `
           }
 
         </div>
@@ -1839,6 +2524,7 @@ function renderEditor(app){
           Matrice 13 × 13
         </div>
 
+
         <p class="muted">
           Maintiens le doigt (ou le clic)
           et glisse pour sélectionner
@@ -1860,17 +2546,21 @@ function renderEditor(app){
 
               ${
                 Array.from(
-                  {length:13},
-                  (_,row)=>`
+                  {
+                    length: 13
+                  },
+                  (_, row) => `
 
                     <tr>
 
                       ${
                         Array.from(
-                          {length:13},
-                          (_,col)=>
+                          {
+                            length: 13
+                          },
+                          (_, col) =>
                             cellHTML(
-                              r,
+                              range,
                               row,
                               col
                             )
@@ -1894,9 +2584,19 @@ function renderEditor(app){
           class="selected-count"
           id="selected-count"
         >
-          ${state.selectedCells.size}
-          main${state.selectedCells.size>1?'s':''}
-          sélectionnée${state.selectedCells.size>1?'s':''}
+          ${
+            state.selectedCells.size
+          }
+          main${
+            state.selectedCells.size > 1
+              ? 's'
+              : ''
+          }
+          sélectionnée${
+            state.selectedCells.size > 1
+              ? 's'
+              : ''
+          }
         </div>
 
 
@@ -1915,19 +2615,23 @@ function renderEditor(app){
         <div class="matrix-labels">
 
           ${
-            r.etiquettes.map(l=>`
+            range.etiquettes
+              .map(label => `
 
-              <span>
+                <span>
 
-                <i
-                  style="background:${l.couleur}"
-                ></i>
+                  <i
+                    style="background:${esc(
+                      label.couleur
+                    )}"
+                  ></i>
 
-                ${esc(l.nom)}
+                  ${esc(label.nom)}
 
-              </span>
+                </span>
 
-            `).join('')
+              `)
+              .join('')
           }
 
         </div>
@@ -1949,23 +2653,33 @@ function renderEditor(app){
         <div class="toolbar">
 
           ${
-            r.etiquettes.map(l=>`
+            range.etiquettes.length
 
-              <button
-                class="btn secondary assign"
-                data-label="${l.id}"
-              >
-                Appliquer :
-                ${esc(l.nom)}
-              </button>
+              ?
 
-            `).join('')
-            ||
-            `
-              <span class="muted">
-                Ajoute d’abord une étiquette.
-              </span>
-            `
+              range.etiquettes
+                .map(label => `
+
+                  <button
+                    class="btn secondary assign"
+                    data-label="${esc(label.id)}"
+                  >
+                    Appliquer :
+                    ${esc(label.nom)}
+                  </button>
+
+                `)
+                .join('')
+
+              :
+
+              `
+
+                <span class="muted">
+                  Ajoute d’abord une étiquette.
+                </span>
+
+              `
           }
 
         </div>
@@ -1990,57 +2704,89 @@ function renderEditor(app){
 
 
   document
-    .getElementById('back')
-    .onclick=()=>nav('ranges');
+    .getElementById(
+      'back'
+    )
+    ?.addEventListener(
+      'click',
+      () => nav('ranges')
+    );
 
 
   document
-    .getElementById('addLabel')
-    .onclick=()=>{
-
-      syncEditorFields();
-
-      labelModal();
-    };
-
-
-  document
-    .getElementById('clearSel')
-    .onclick=()=>{
-
-      state.selectedCells.clear();
-
-      updateSelectedCount();
-
-      updateGridSelectionVisuals();
-    };
-
-
-  document
-    .getElementById('save')
-    .onclick=saveRange;
-
-
-  app
-    .querySelectorAll('.remove-label')
-    .forEach(b=>{
-
-      b.onclick=()=>{
+    .getElementById(
+      'addLabel'
+    )
+    ?.addEventListener(
+      'click',
+      () => {
 
         syncEditorFields();
 
-        r.etiquettes=
-          r.etiquettes.filter(
-            l=>l.id!==b.dataset.id
+        labelModal();
+      }
+    );
+
+
+  document
+    .getElementById(
+      'clearSel'
+    )
+    ?.addEventListener(
+      'click',
+      () => {
+
+        state.selectedCells.clear();
+
+        updateSelectedCount();
+
+        updateGridSelectionVisuals();
+      }
+    );
+
+
+  document
+    .getElementById(
+      'save'
+    )
+    ?.addEventListener(
+      'click',
+      saveRange
+    );
+
+
+  app
+    .querySelectorAll(
+      '.remove-label'
+    )
+    .forEach(button => {
+
+      button.onclick = () => {
+
+        syncEditorFields();
+
+
+        range.etiquettes =
+          range.etiquettes.filter(
+            label =>
+              label.id !==
+              button.dataset.id
           );
 
-        for(const h of allHands()){
 
-          r.mains[h]=
-            r.mains[h].filter(
-              x=>x!==b.dataset.id
-            );
+        for (
+          const hand of allHands()
+        ) {
+
+          range.mains[hand] =
+            range.mains[hand]
+              .filter(
+                id =>
+                  id !==
+                  button.dataset.id
+              );
         }
+
 
         render();
       };
@@ -2048,30 +2794,44 @@ function renderEditor(app){
 
 
   app
-    .querySelectorAll('.rename')
-    .forEach(b=>{
+    .querySelectorAll(
+      '.rename'
+    )
+    .forEach(button => {
 
-      b.onclick=()=>{
+      button.onclick = () => {
 
         syncEditorFields();
 
-        labelModal(
-          r.etiquettes.find(
-            l=>l.id===b.dataset.id
-          )
-        );
+
+        const label =
+          range.etiquettes.find(
+            item =>
+              item.id ===
+              button.dataset.id
+          );
+
+
+        if (label) {
+
+          labelModal(
+            label
+          );
+        }
       };
     });
 
 
   app
-    .querySelectorAll('.assign')
-    .forEach(b=>{
+    .querySelectorAll(
+      '.assign'
+    )
+    .forEach(button => {
 
-      b.onclick=()=>{
+      button.onclick = () => {
 
         applyLabel(
-          b.dataset.label
+          button.dataset.label
         );
       };
     });
@@ -2080,72 +2840,105 @@ function renderEditor(app){
   bindGridPointerEvents();
 }
 
-function cellHTML(r,row,col){
 
-  const h=handAt(row,col);
+function cellHTML(
+  range,
+  row,
+  col
+) {
 
-  const ids=
-    r.mains[h]||[];
+  const hand =
+    handAt(
+      row,
+      col
+    );
 
-  const labels=
+
+  const ids =
+    range.mains[hand] ||
+    [];
+
+
+  const labels =
     ids
       .map(
-        id=>r.etiquettes.find(
-          l=>l.id===id
-        )
+        id =>
+          range.etiquettes.find(
+            label =>
+              label.id === id
+          )
       )
       .filter(Boolean);
 
-  const style=
-    labels.length===1
-      ?
-      `
+
+  let style = '';
+
+
+  if (
+    labels.length === 1
+  ) {
+
+    style = `
+
+      <i
+        class="single"
+        style="background:${esc(
+          labels[0].couleur
+        )}"
+      ></i>
+
+    `;
+
+  } else if (
+    labels.length === 2
+  ) {
+
+    style = `
+
+      <i class="split">
+
         <i
-          class="single"
-          style="background:${labels[0].couleur}"
+          style="background:${esc(
+            labels[0].couleur
+          )}"
         ></i>
-      `
-      :
-      labels.length===2
-      ?
-      `
-        <i class="split">
 
-          <i
-            style="background:${labels[0].couleur}"
-          ></i>
+        <i
+          style="background:${esc(
+            labels[1].couleur
+          )}"
+        ></i>
 
-          <i
-            style="background:${labels[1].couleur}"
-          ></i>
+      </i>
 
-        </i>
-      `
-      :
-      '';
+    `;
+  }
+
 
   return `
+
     <td>
 
       <button
         class="cell ${
-          state.selectedCells.has(h)
+          state.selectedCells.has(hand)
             ? 'selected'
             : ''
         }"
-        data-hand="${h}"
+        data-hand="${esc(hand)}"
         type="button"
       >
 
         ${style}
 
         <span>
-          ${h}
+          ${esc(hand)}
         </span>
 
       </button>
 
     </td>
+
   `;
 }
 
@@ -2154,170 +2947,247 @@ function cellHTML(r,row,col){
    SÉLECTION MATRICE
 ========================================================= */
 
-function bindGridPointerEvents(){
+function bindGridPointerEvents() {
 
-  const grid=
+  const grid =
     document.getElementById(
       'range-grid'
     );
 
-  if(!grid){
+
+  if (!grid) {
     return;
   }
 
-  grid.onpointerdown=
+
+  grid.onpointerdown =
     gridPointerDown;
 
-  grid.onpointermove=
+  grid.onpointermove =
     gridPointerMove;
 
-  grid.onpointerup=
+  grid.onpointerup =
     gridPointerUp;
 
-  grid.onpointercancel=
+  grid.onpointercancel =
     gridPointerUp;
 
-  grid.onpointerleave=()=>{};
-
-  grid.oncontextmenu=
-    e=>e.preventDefault();
+  grid.oncontextmenu =
+    event =>
+      event.preventDefault();
 }
 
-function cellFromPoint(x,y){
 
-  const el=
+function cellFromPoint(
+  x,
+  y
+) {
+
+  const element =
     document.elementFromPoint(
       x,
       y
     );
 
-  return el?.closest?.('.cell')||null;
+
+  return (
+    element?.closest?.(
+      '.cell'
+    ) ||
+    null
+  );
 }
 
-function gridPointerDown(e){
 
-  const cell=
+function gridPointerDown(
+  event
+) {
+
+  const cell =
     cellFromPoint(
-      e.clientX,
-      e.clientY
+      event.clientX,
+      event.clientY
     );
 
-  if(!cell){
+
+  if (!cell) {
     return;
   }
 
-  e.preventDefault();
 
-  gridPointerActive=true;
+  event.preventDefault();
 
-  gridSelectionMode=
+
+  gridPointerActive =
+    true;
+
+
+  gridSelectionMode =
     !state.selectedCells.has(
       cell.dataset.hand
     );
 
-  lastTouchedHand=null;
 
-  selectGridCell(cell);
+  lastTouchedHand = null;
 
-  try{
 
-    e.currentTarget.setPointerCapture(
-      e.pointerId
+  selectGridCell(
+    cell
+  );
+
+
+  try {
+
+    event.currentTarget.setPointerCapture(
+      event.pointerId
     );
 
-  }catch(_){}
+  } catch (_) {}
 }
 
-function gridPointerMove(e){
 
-  if(!gridPointerActive){
+function gridPointerMove(
+  event
+) {
+
+  if (
+    !gridPointerActive
+  ) {
     return;
   }
 
-  e.preventDefault();
 
-  const cell=
+  event.preventDefault();
+
+
+  const cell =
     cellFromPoint(
-      e.clientX,
-      e.clientY
+      event.clientX,
+      event.clientY
     );
 
-  if(cell){
-    selectGridCell(cell);
+
+  if (cell) {
+
+    selectGridCell(
+      cell
+    );
   }
 }
 
-function gridPointerUp(e){
 
-  if(!gridPointerActive){
+function gridPointerUp(
+  event
+) {
+
+  if (
+    !gridPointerActive
+  ) {
     return;
   }
 
-  e.preventDefault();
 
-  gridPointerActive=false;
-  lastTouchedHand=null;
+  event.preventDefault();
 
-  try{
 
-    e.currentTarget.releasePointerCapture(
-      e.pointerId
+  gridPointerActive =
+    false;
+
+  lastTouchedHand =
+    null;
+
+
+  try {
+
+    event.currentTarget.releasePointerCapture(
+      event.pointerId
     );
 
-  }catch(_){}
+  } catch (_) {}
 }
 
-function selectGridCell(cell){
 
-  const h=cell.dataset.hand;
+function selectGridCell(
+  cell
+) {
 
-  if(
-    !h ||
-    h===lastTouchedHand
-  ){
+  const hand =
+    cell.dataset.hand;
+
+
+  if (
+    !hand ||
+    hand === lastTouchedHand
+  ) {
     return;
   }
 
-  lastTouchedHand=h;
 
-  if(gridSelectionMode){
+  lastTouchedHand =
+    hand;
 
-    state.selectedCells.add(h);
 
-  }else{
+  if (
+    gridSelectionMode
+  ) {
 
-    state.selectedCells.delete(h);
+    state.selectedCells.add(
+      hand
+    );
+
+  } else {
+
+    state.selectedCells.delete(
+      hand
+    );
   }
+
 
   cell.classList.toggle(
     'selected',
     gridSelectionMode
   );
 
+
   updateSelectedCount();
 }
 
-function updateSelectedCount(){
 
-  const el=
+function updateSelectedCount() {
+
+  const element =
     document.getElementById(
       'selected-count'
     );
 
-  if(el){
 
-    el.textContent=
-      `${state.selectedCells.size} `+
-      `main${state.selectedCells.size>1?'s':''} `+
-      `sélectionnée${state.selectedCells.size>1?'s':''}`;
+  if (!element) {
+    return;
   }
+
+
+  element.textContent =
+    `${state.selectedCells.size} ` +
+    `main${
+      state.selectedCells.size > 1
+        ? 's'
+        : ''
+    } ` +
+    `sélectionnée${
+      state.selectedCells.size > 1
+        ? 's'
+        : ''
+    }`;
 }
 
-function updateGridSelectionVisuals(){
+
+function updateGridSelectionVisuals() {
 
   document
-    .querySelectorAll('.cell')
-    .forEach(cell=>{
+    .querySelectorAll(
+      '.cell'
+    )
+    .forEach(cell => {
 
       cell.classList.toggle(
         'selected',
@@ -2333,207 +3203,305 @@ function updateGridSelectionVisuals(){
    MODALE ÉTIQUETTE
 ========================================================= */
 
-function labelModal(existing){
+function labelModal(
+  existing
+) {
 
-  const r=state.editing;
+  const range =
+    state.editing;
 
-  let color=
+
+  if (!range) {
+    return;
+  }
+
+
+  let color =
     existing?.couleur ||
     COLORS[
-      r.etiquettes.length %
+      range.etiquettes.length %
       COLORS.length
     ];
 
-  document
-    .getElementById('modal-root')
-    .innerHTML=`
 
-      <div class="modal-backdrop">
-
-        <div class="modal">
-
-          <h2>
-            ${existing?'Modifier':'Nouvelle'}
-            étiquette
-          </h2>
+  const modalRoot =
+    document.getElementById(
+      'modal-root'
+    );
 
 
-          <div class="field">
-
-            <label>
-              Nom
-            </label>
-
-            <input
-              class="input"
-              id="labelName"
-              value="${esc(existing?.nom||'')}"
-              placeholder="Raise, Fold, All-in..."
-            >
-
-          </div>
+  if (!modalRoot) {
+    return;
+  }
 
 
-          <div class="field">
+  modalRoot.innerHTML = `
 
-            <label>
-              Couleur
-            </label>
+    <div class="modal-backdrop">
 
-            <div class="color-grid">
+      <div class="modal">
 
-              ${
-                COLORS.map(c=>`
+        <h2>
+          ${
+            existing
+              ? 'Modifier'
+              : 'Nouvelle'
+          }
+          étiquette
+        </h2>
+
+
+        <div class="field">
+
+          <label>
+            Nom
+          </label>
+
+          <input
+            class="input"
+            id="labelName"
+            value="${esc(
+              existing?.nom || ''
+            )}"
+            placeholder="Raise, Fold, All-in..."
+          >
+
+        </div>
+
+
+        <div class="field">
+
+          <label>
+            Couleur
+          </label>
+
+          <div class="color-grid">
+
+            ${
+              COLORS
+                .map(colorValue => `
 
                   <button
                     type="button"
                     class="color-choice ${
-                      c===color
+                      colorValue === color
                         ? 'selected'
                         : ''
                     }"
-                    data-color="${c}"
-                    style="background:${c}"
+                    data-color="${colorValue}"
+                    style="background:${colorValue}"
                   ></button>
 
-                `).join('')
-              }
-
-            </div>
-
-          </div>
-
-
-          <div class="toolbar">
-
-            <button
-              class="btn secondary"
-              id="cancel"
-            >
-              Annuler
-            </button>
-
-            <button
-              class="btn"
-              id="ok"
-            >
-              Enregistrer
-            </button>
+                `)
+                .join('')
+            }
 
           </div>
 
         </div>
 
+
+        <div class="toolbar">
+
+          <button
+            class="btn secondary"
+            id="cancel"
+          >
+            Annuler
+          </button>
+
+          <button
+            class="btn"
+            id="ok"
+          >
+            Enregistrer
+          </button>
+
+        </div>
+
       </div>
-    `;
+
+    </div>
+  `;
 
 
-  document
-    .querySelectorAll('.color-choice')
-    .forEach(b=>{
+  modalRoot
+    .querySelectorAll(
+      '.color-choice'
+    )
+    .forEach(button => {
 
-      b.onclick=()=>{
+      button.onclick = () => {
 
-        color=b.dataset.color;
+        color =
+          button.dataset.color;
 
-        document
-          .querySelectorAll('.color-choice')
-          .forEach(x=>
-            x.classList.remove('selected')
-          );
 
-        b.classList.add('selected');
+        modalRoot
+          .querySelectorAll(
+            '.color-choice'
+          )
+          .forEach(item => {
+
+            item.classList.remove(
+              'selected'
+            );
+          });
+
+
+        button.classList.add(
+          'selected'
+        );
       };
     });
 
 
   document
-    .getElementById('cancel')
-    .onclick=()=>{
+    .getElementById(
+      'cancel'
+    )
+    ?.addEventListener(
+      'click',
+      () => {
 
-      document
-        .getElementById('modal-root')
-        .innerHTML='';
-    };
+        modalRoot.innerHTML =
+          '';
+      }
+    );
 
 
   document
-    .getElementById('ok')
-    .onclick=()=>{
+    .getElementById(
+      'ok'
+    )
+    ?.addEventListener(
+      'click',
+      () => {
 
-      const n=
-        document
-          .getElementById('labelName')
-          .value
-          .trim();
+        const nameInput =
+          document.getElementById(
+            'labelName'
+          );
 
-      if(!n){
-        return;
+
+        const name =
+          nameInput
+            ?.value
+            .trim() ||
+          '';
+
+
+        if (!name) {
+          return;
+        }
+
+
+        if (existing) {
+
+          existing.nom =
+            name;
+
+          existing.couleur =
+            color;
+
+        } else {
+
+          range.etiquettes.push({
+
+            id:
+              uid('label'),
+
+            nom:
+              name,
+
+            couleur:
+              color
+          });
+        }
+
+
+        modalRoot.innerHTML =
+          '';
+
+
+        render();
       }
-
-      if(existing){
-
-        existing.nom=n;
-        existing.couleur=color;
-
-      }else{
-
-        r.etiquettes.push({
-          id:uid('label'),
-          nom:n,
-          couleur:color
-        });
-      }
-
-      document
-        .getElementById('modal-root')
-        .innerHTML='';
-
-      render();
-    };
+    );
 }
 
-function applyLabel(id){
 
-  const r=state.editing;
+function applyLabel(
+  labelId
+) {
+
+  const range =
+    state.editing;
+
+
+  if (!range) {
+    return;
+  }
+
 
   syncEditorFields();
 
-  for(const h of state.selectedCells){
 
-    let a=
-      r.mains[h]||[];
+  for (
+    const hand of state.selectedCells
+  ) {
 
-    if(a.includes(id)){
+    let labels =
+      range.mains[hand] ||
+      [];
 
-      a=a.filter(
-        x=>x!==id
-      );
 
-    }
-    else if(a.length<2){
+    if (
+      labels.includes(
+        labelId
+      )
+    ) {
 
-      a=[
-        ...a,
-        id
+      labels =
+        labels.filter(
+          id =>
+            id !== labelId
+        );
+
+    } else if (
+      labels.length < 2
+    ) {
+
+      labels = [
+        ...labels,
+        labelId
       ];
     }
 
-    r.mains[h]=a;
+
+    range.mains[hand] =
+      labels;
   }
+
 
   state.selectedCells.clear();
 
   render();
 }
 
-async function saveRange(){
+
+async function saveRange() {
 
   syncEditorFields();
 
-  const r=state.editing;
 
-  if(!r.nom){
+  const range =
+    state.editing;
+
+
+  if (
+    !range ||
+    !range.nom.trim()
+  ) {
 
     alert(
       'Donne un nom à la range.'
@@ -2542,22 +3510,36 @@ async function saveRange(){
     return;
   }
 
-  await putRange(r);
 
-  state.view='ranges';
-  state.editing=null;
+  range.nom =
+    range.nom.trim();
+
+
+  await putRange(
+    range
+  );
+
+
+  state.view =
+    'ranges';
+
+  state.editing =
+    null;
+
+  state.selectedCells.clear();
+
 
   render();
 }
 
 
 /* =========================================================
-   CONFIGURATION DU DRILL
+   CONFIGURATION DRILL
 ========================================================= */
 
-function renderSetup(app){
+function renderSetup(app) {
 
-  app.innerHTML=`
+  app.innerHTML = `
 
     <main class="app">
 
@@ -2625,17 +3607,20 @@ function renderSetup(app){
         <div class="toolbar">
 
           ${
-            [10,20,30,50,100]
-              .map(n=>`
+            [10, 20, 30, 50, 100]
+              .map(
+                number => `
 
-                <button
-                  class="btn secondary len"
-                  data-n="${n}"
-                >
-                  ${n}
-                </button>
+                  <button
+                    class="btn secondary len"
+                    data-n="${number}"
+                  >
+                    ${number}
+                  </button>
 
-              `).join('')
+                `
+              )
+              .join('')
           }
 
         </div>
@@ -2659,239 +3644,314 @@ function renderSetup(app){
   `;
 
 
-  getRanges().then(rs=>{
+  let drillLength = 20;
 
-    const box=
-      document.getElementById(
-        'rangeChoices'
-      );
 
-    if(!box){
-      return;
-    }
+  getRanges()
+    .then(ranges => {
 
-    if(!rs.length){
+      const box =
+        document.getElementById(
+          'rangeChoices'
+        );
 
-      box.innerHTML=`
 
-        <div class="notice">
-          Crée au moins une range
-          avant de lancer un drill.
+      if (!box) {
+        return;
+      }
+
+
+      if (
+        !ranges.length
+      ) {
+
+        box.innerHTML = `
+
+          <div class="notice">
+
+            Crée au moins une range
+            avant de lancer un drill.
+
+          </div>
+
+        `;
+
+        return;
+      }
+
+
+      const groups =
+        groupRangesByPosition(
+          ranges
+        );
+
+
+      box.innerHTML = `
+
+        <div class="range-groups">
+
+          ${
+            groups
+              .map(
+                ([position, groupRanges]) =>
+                  positionGroupHTML(
+                    position,
+                    groupRanges,
+                    {
+                      drillMode: true
+                    }
+                  )
+              )
+              .join('')
+          }
+
         </div>
-
       `;
 
-      return;
-    }
 
-    const groups=
-      groupRangesByPosition(rs);
+      box
+        .querySelectorAll(
+          '.range-group-header'
+        )
+        .forEach(header => {
 
-    box.innerHTML=`
+          header.onclick = () => {
 
-      <div class="range-groups">
-
-        ${
-          groups
-            .map(
-              ([position,ranges])=>
-                positionGroupHTML(
-                  position,
-                  ranges,
-                  {
-                    drillMode:true
-                  }
-                )
-            )
-            .join('')
-        }
-
-      </div>
-    `;
+            const content =
+              document.getElementById(
+                header.dataset.group
+              );
 
 
-    box
-      .querySelectorAll(
-        '.range-group-header'
-      )
-      .forEach(header=>{
-
-        header.onclick=()=>{
-
-          const content=
-            document.getElementById(
-              header.dataset.group
-            );
-
-          if(!content){
-            return;
-          }
-
-          const arrow=
-            header.querySelector(
-              '.group-arrow'
-            );
-
-          content.hidden=
-            !content.hidden;
-
-          if(arrow){
-
-            arrow.textContent=
-              content.hidden
-                ? '▶'
-                : '▼';
-          }
-        };
-      });
+            if (!content) {
+              return;
+            }
 
 
-    box
-      .querySelectorAll(
-        '.position-check'
-      )
-      .forEach(check=>{
-
-        check.onchange=()=>{
-
-          const position=
-            check.dataset.position;
-
-          box
-            .querySelectorAll(
-              '.range-check'
-            )
-            .forEach(rangeCheck=>{
-
-              const range=
-                rs.find(
-                  r=>r.id===rangeCheck.value
-                );
-
-              if(!range){
-                return;
-              }
-
-              const rangePosition=
-                (
-                  range
-                    .informations
-                    ?.position ||
-                  ''
-                )
-                .trim() ||
-                'Sans position';
-
-              if(
-                rangePosition===
-                position
-              ){
-
-                rangeCheck.checked=
-                  check.checked;
-              }
-
-            });
-        };
-      });
+            const arrow =
+              header.querySelector(
+                '.group-arrow'
+              );
 
 
-    box
-      .querySelectorAll('.range-check')
-      .forEach(rangeCheck=>{
+            content.hidden =
+              !content.hidden;
 
-        rangeCheck.onchange=()=>{
 
-          const range=
-            rs.find(
-              r=>r.id===rangeCheck.value
-            );
+            if (arrow) {
 
-          if(!range){
-            return;
-          }
+              arrow.textContent =
+                content.hidden
+                  ? '▶'
+                  : '▼';
+            }
+          };
+        });
 
-          const position=
-            (
-              range
-                .informations
-                ?.position ||
-              ''
-            )
-            .trim() ||
-            'Sans position';
 
-          const groupChecks=
-            [
-              ...box.querySelectorAll(
-                '.position-check'
+      box
+        .querySelectorAll(
+          '.position-check'
+        )
+        .forEach(check => {
+
+          check.onchange = () => {
+
+            const position =
+              check.dataset.position;
+
+
+            box
+              .querySelectorAll(
+                '.range-check'
               )
-            ];
+              .forEach(rangeCheck => {
 
-          const groupCheck=
-            groupChecks.find(
-              c=>
-                c.dataset.position===
-                position
-            );
+                const range =
+                  ranges.find(
+                    item =>
+                      item.id ===
+                      rangeCheck.value
+                  );
 
-          if(!groupCheck){
-            return;
-          }
 
-          const groupRanges=
-            rs.filter(r=>{
+                if (!range) {
+                  return;
+                }
 
-              const p=
-                (
-                  r
-                    .informations
-                    ?.position ||
-                  ''
-                )
+
+                const rangePosition =
+                  (
+                    range
+                      .informations
+                      ?.position ||
+                    ''
+                  )
+                    .trim() ||
+                  'Sans position';
+
+
+                if (
+                  rangePosition ===
+                  position
+                ) {
+
+                  rangeCheck.checked =
+                    check.checked;
+                }
+              });
+          };
+        });
+
+
+      box
+        .querySelectorAll(
+          '.range-check'
+        )
+        .forEach(rangeCheck => {
+
+          rangeCheck.onchange = () => {
+
+            const range =
+              ranges.find(
+                item =>
+                  item.id ===
+                  rangeCheck.value
+              );
+
+
+            if (!range) {
+              return;
+            }
+
+
+            const position =
+              (
+                range
+                  .informations
+                  ?.position ||
+                ''
+              )
                 .trim() ||
-                'Sans position';
-
-              return p===position;
-            });
-
-          const allChecked=
-            groupRanges.every(r=>{
-
-              const checkbox=
-                box.querySelector(
-                  `.range-check[value="${CSS.escape(r.id)}"]`
-                );
-
-              return checkbox?.checked;
-            });
-
-          groupCheck.checked=
-            allChecked;
-        };
-      });
-
-  });
+              'Sans position';
 
 
-  let len=20;
+            const groupCheck =
+              [
+                ...box.querySelectorAll(
+                  '.position-check'
+                )
+              ].find(
+                item =>
+                  item.dataset.position ===
+                  position
+              );
+
+
+            if (!groupCheck) {
+              return;
+            }
+
+
+            const groupRanges =
+              ranges.filter(
+                item => {
+
+                  const itemPosition =
+                    (
+                      item
+                        .informations
+                        ?.position ||
+                      ''
+                    )
+                      .trim() ||
+                    'Sans position';
+
+
+                  return (
+                    itemPosition ===
+                    position
+                  );
+                }
+              );
+
+
+            const allChecked =
+              groupRanges.every(
+                item => {
+
+                  const checkbox =
+                    box.querySelector(
+                      `.range-check[value="${CSS.escape(
+                        item.id
+                      )}"]`
+                    );
+
+                  return (
+                    checkbox?.checked
+                  );
+                }
+              );
+
+
+            groupCheck.checked =
+              allChecked;
+          };
+        });
+    })
+    .catch(error => {
+
+      console.error(
+        error
+      );
+
+      const box =
+        document.getElementById(
+          'rangeChoices'
+        );
+
+      if (box) {
+
+        box.innerHTML = `
+
+          <div class="notice">
+            Impossible de charger les ranges.
+          </div>
+
+        `;
+      }
+    });
 
 
   app
-    .querySelectorAll('.len')
-    .forEach(b=>{
+    .querySelectorAll(
+      '.len'
+    )
+    .forEach(button => {
 
-      b.onclick=()=>{
+      button.onclick = () => {
 
-        len=+b.dataset.n;
-
-        app
-          .querySelectorAll('.len')
-          .forEach(x=>
-            x.classList.add('secondary')
+        drillLength =
+          Number(
+            button.dataset.n
           );
 
-        b.classList.remove('secondary');
+
+        app
+          .querySelectorAll(
+            '.len'
+          )
+          .forEach(item => {
+
+            item.classList.add(
+              'secondary'
+            );
+          });
+
+
+        button.classList.remove(
+          'secondary'
+        );
       };
     });
 
@@ -2900,192 +3960,269 @@ function renderSetup(app){
     .getElementById(
       'selectAllRanges'
     )
-    .onclick=()=>{
+    ?.addEventListener(
+      'click',
+      () => {
 
-      app
-        .querySelectorAll(
-          '.range-check'
-        )
-        .forEach(
-          x=>x.checked=true
-        );
+        app
+          .querySelectorAll(
+            '.range-check'
+          )
+          .forEach(
+            checkbox =>
+              checkbox.checked = true
+          );
 
-      app
-        .querySelectorAll(
-          '.position-check'
-        )
-        .forEach(
-          x=>x.checked=true
-        );
-    };
+
+        app
+          .querySelectorAll(
+            '.position-check'
+          )
+          .forEach(
+            checkbox =>
+              checkbox.checked = true
+          );
+      }
+    );
 
 
   document
     .getElementById(
       'clearAllRanges'
     )
-    .onclick=()=>{
+    ?.addEventListener(
+      'click',
+      () => {
 
-      app
-        .querySelectorAll(
-          '.range-check'
-        )
-        .forEach(
-          x=>x.checked=false
-        );
+        app
+          .querySelectorAll(
+            '.range-check'
+          )
+          .forEach(
+            checkbox =>
+              checkbox.checked = false
+          );
 
-      app
-        .querySelectorAll(
-          '.position-check'
-        )
-        .forEach(
-          x=>x.checked=false
-        );
-    };
+
+        app
+          .querySelectorAll(
+            '.position-check'
+          )
+          .forEach(
+            checkbox =>
+              checkbox.checked = false
+          );
+      }
+    );
 
 
   document
-    .getElementById('start')
-    .onclick=async()=>{
+    .getElementById(
+      'start'
+    )
+    ?.addEventListener(
+      'click',
+      async () => {
 
-      const rs=
-        await getRanges();
+        const ranges =
+          await getRanges();
 
-      const ids=
-        [
-          ...document
-            .querySelectorAll(
+
+        const selectedIds =
+          [
+            ...document.querySelectorAll(
               '.range-check:checked'
             )
-        ]
-        .map(
-          x=>x.value
-        );
+          ]
+            .map(
+              checkbox =>
+                checkbox.value
+            );
 
-      const sel=
-        rs.filter(
-          r=>ids.includes(r.id)
-        );
 
-      if(!sel.length){
+        const selectedRanges =
+          ranges.filter(
+            range =>
+              selectedIds.includes(
+                range.id
+              )
+          );
 
-        alert(
-          'Sélectionne au moins une range.'
-        );
 
-        return;
+        if (
+          !selectedRanges.length
+        ) {
+
+          alert(
+            'Sélectionne au moins une range.'
+          );
+
+          return;
+        }
+
+
+        const situations =
+          buildSituations(
+            selectedRanges
+          );
+
+
+        if (
+          !situations.fold.length ||
+          !situations.nonFold.length
+        ) {
+
+          alert(
+            'Pour respecter le ratio 30/70, les ranges sélectionnées doivent contenir au moins une situation Fold et une situation Non-Fold définies.'
+          );
+
+          return;
+        }
+
+
+        state.drill = {
+
+          ranges:
+            selectedRanges,
+
+          questions:
+            makeQuestions(
+              situations,
+              drillLength
+            ),
+
+          index:
+            0,
+
+          score:
+            0,
+
+          answers: []
+        };
+
+
+        state.view =
+          'question';
+
+
+        render();
       }
-
-      const situations=
-        buildSituations(sel);
-
-      if(
-        !situations.fold.length ||
-        !situations.nonFold.length
-      ){
-
-        alert(
-          'Pour respecter le ratio 30/70, les ranges sélectionnées doivent contenir au moins une situation Fold et une situation Non-Fold définies.'
-        );
-
-        return;
-      }
-
-      state.drill={
-
-        ranges:sel,
-
-        questions:
-          makeQuestions(
-            situations,
-            len
-          ),
-
-        index:0,
-
-        score:0,
-
-        answers:[]
-      };
-
-      state.view='question';
-
-      render();
-    };
+    );
 }
 
 
 /* =========================================================
-   LOGIQUE DU DRILL
+   LOGIQUE DRILL
 ========================================================= */
 
-function isFoldOnly(r,h){
+function isFoldOnly(
+  range,
+  hand
+) {
 
-  const ids=
-    r.mains[h]||[];
+  const ids =
+    range.mains[hand] ||
+    [];
 
-  if(!ids.length){
+
+  if (!ids.length) {
     return false;
   }
 
-  return ids.every(id=>{
 
-    const l=
-      r.etiquettes.find(
-        x=>x.id===id
+  return ids.every(
+    id => {
+
+      const label =
+        range.etiquettes.find(
+          item =>
+            item.id === id
+        );
+
+
+      return (
+        label &&
+        label.nom
+          .trim()
+          .toLowerCase() ===
+        'fold'
       );
-
-    return l &&
-      l.nom
-        .trim()
-        .toLowerCase()==='fold';
-  });
+    }
+  );
 }
 
-function buildSituations(rs){
 
-  const fold=[];
-  const nonFold=[];
+function buildSituations(
+  ranges
+) {
 
-  for(const r of rs){
+  const fold = [];
+  const nonFold = [];
 
-    for(const h of allHands()){
 
-      if(
-        !(r.mains[h]||[]).length
-      ){
+  for (
+    const range of ranges
+  ) {
+
+    for (
+      const hand of allHands()
+    ) {
+
+      if (
+        !(range.mains[hand] || []).length
+      ) {
         continue;
       }
 
-      const labels=
-        (r.mains[h]||[])
+
+      const labels =
+        (range.mains[hand] || [])
           .map(
-            id=>
-              r.etiquettes.find(
-                l=>l.id===id
+            id =>
+              range.etiquettes.find(
+                label =>
+                  label.id === id
               )
           )
           .filter(Boolean);
 
-      const s={
-        rangeId:r.id,
-        range:r,
-        main:h,
-        labels
+
+      const situation = {
+
+        rangeId:
+          range.id,
+
+        range:
+          range,
+
+        main:
+          hand,
+
+        labels:
+          labels
       };
 
-      if(
-        isFoldOnly(r,h)
-      ){
 
-        fold.push(s);
+      if (
+        isFoldOnly(
+          range,
+          hand
+        )
+      ) {
 
-      }else{
+        fold.push(
+          situation
+        );
 
-        nonFold.push(s);
+      } else {
+
+        nonFold.push(
+          situation
+        );
       }
     }
   }
+
 
   return {
     fold,
@@ -3093,71 +4230,118 @@ function buildSituations(rs){
   };
 }
 
-function sample(arr,n){
 
-  const pool=[...arr];
-  const out=[];
+function sample(
+  array,
+  count
+) {
 
-  for(let i=0;i<n;i++){
+  if (
+    !array.length ||
+    count <= 0
+  ) {
 
-    if(!pool.length){
-      pool.push(...arr);
+    return [];
+  }
+
+
+  const pool =
+    [...array];
+
+  const result = [];
+
+
+  for (
+    let i = 0;
+    i < count;
+    i++
+  ) {
+
+    if (
+      !pool.length
+    ) {
+
+      pool.push(
+        ...array
+      );
     }
 
-    const j=
+
+    const index =
       Math.floor(
-        Math.random()*pool.length
+        Math.random() *
+        pool.length
       );
 
-    out.push(
-      pool.splice(j,1)[0]
+
+    result.push(
+      pool.splice(
+        index,
+        1
+      )[0]
     );
   }
 
-  return out;
+
+  return result;
 }
 
-function makeQuestions(s,len){
 
-  const foldCount=
-    Math.round(len*.3);
+function makeQuestions(
+  situations,
+  length
+) {
 
-  const nonFoldCount=
-    len-foldCount;
+  const foldCount =
+    Math.round(
+      length * 0.3
+    );
 
-  const q=[
+
+  const nonFoldCount =
+    length -
+    foldCount;
+
+
+  const questions = [
+
     ...sample(
-      s.fold,
+      situations.fold,
       foldCount
     ),
 
     ...sample(
-      s.nonFold,
+      situations.nonFold,
       nonFoldCount
     )
+
   ];
 
-  for(
-    let i=q.length-1;
-    i>0;
-    i--
-  ){
 
-    const j=
+  for (
+    let i = questions.length - 1;
+    i > 0;
+    i--
+  ) {
+
+    const j =
       Math.floor(
-        Math.random()*(i+1)
+        Math.random() *
+        (i + 1)
       );
 
+
     [
-      q[i],
-      q[j]
-    ]=[
-      q[j],
-      q[i]
+      questions[i],
+      questions[j]
+    ] = [
+      questions[j],
+      questions[i]
     ];
   }
 
-  return q;
+
+  return questions;
 }
 
 
@@ -3165,77 +4349,120 @@ function makeQuestions(s,len){
    QUESTIONS
 ========================================================= */
 
-function renderDrill(app){
+function renderDrill(app) {
 
-  const d=state.drill;
+  const drill =
+    state.drill;
 
-  if(!d){
+
+  if (!drill) {
+
+    state.view =
+      'setup';
 
     renderSetup(app);
 
     return;
   }
 
-  if(state.view==='result'){
+
+  if (
+    state.view === 'result'
+  ) {
 
     renderResult(app);
 
     return;
   }
 
-  const q=
-    d.questions[d.index];
 
-  const multi=
-    d.ranges.length>1;
+  const question =
+    drill.questions[
+      drill.index
+    ];
 
-  const optionMap=
+
+  if (!question) {
+
+    finishDrill();
+
+    return;
+  }
+
+
+  const multipleRanges =
+    drill.ranges.length > 1;
+
+
+  const optionMap =
     new Map();
 
-  for(const r of d.ranges){
 
-    for(const l of r.etiquettes){
+  for (
+    const range of drill.ranges
+  ) {
 
-      optionMap.set(
-        l.nom.trim(),
-        l.nom.trim()
-      );
+    for (
+      const label of range.etiquettes
+    ) {
+
+      const name =
+        label.nom.trim();
+
+
+      if (
+        name
+      ) {
+
+        optionMap.set(
+          name,
+          name
+        );
+      }
     }
   }
 
-  const opts=
-    [...optionMap.values()];
 
-  for(
-    let i=opts.length-1;
-    i>0;
+  const options =
+    [
+      ...optionMap.values()
+    ];
+
+
+  for (
+    let i = options.length - 1;
+    i > 0;
     i--
-  ){
+  ) {
 
-    const j=
+    const j =
       Math.floor(
-        Math.random()*(i+1)
+        Math.random() *
+        (i + 1)
       );
 
+
     [
-      opts[i],
-      opts[j]
-    ]=[
-      opts[j],
-      opts[i]
+      options[i],
+      options[j]
+    ] = [
+      options[j],
+      options[i]
     ];
   }
 
 
-  app.innerHTML=`
+  app.innerHTML = `
 
     <main class="app">
 
       <div class="muted">
+
         Question
-        ${d.index+1}
+        ${drill.index + 1}
         /
-        ${d.questions.length}
+        ${drill.questions.length}
+
       </div>
 
 
@@ -3244,7 +4471,10 @@ function renderDrill(app){
         <i
           style="
             width:${
-              (d.index/d.questions.length)*100
+              (
+                drill.index /
+                drill.questions.length
+              ) * 100
             }%
           "
         ></i>
@@ -3253,52 +4483,62 @@ function renderDrill(app){
 
 
       ${
-        multi
-        ?
-        `
-          <div class="context">
-            ${esc(q.range.nom)}
-          </div>
-        `
-        :
-        ''
+        multipleRanges
+
+          ?
+
+          `
+
+            <div class="context">
+              ${esc(question.range.nom)}
+            </div>
+
+          `
+
+          :
+
+          ''
       }
 
 
       <div class="drill-hand">
-        ${q.main}
+        ${esc(question.main)}
       </div>
 
 
       <div class="answers">
 
         ${
-          opts.map(o=>{
+          options
+            .map(option => {
 
-            const l=
-              q.range.etiquettes.find(
-                x=>
-                  x.nom.trim()===o
-              );
+              const label =
+                question.range.etiquettes.find(
+                  item =>
+                    item.nom.trim() ===
+                    option
+                );
 
-            return `
 
-              <button
-                class="btn answer"
-                data-answer="${esc(o)}"
-                style="
-                  --answer-border:
-                  ${esc(
-                    l?.couleur ||
-                    '#d7d7d1'
-                  )}
-                "
-              >
-                ${esc(o)}
-              </button>
+              return `
 
-            `;
-          }).join('')
+                <button
+                  class="btn answer"
+                  data-answer="${esc(option)}"
+                  style="
+                    --answer-border:
+                    ${esc(
+                      label?.couleur ||
+                      '#d7d7d1'
+                    )}
+                  "
+                >
+                  ${esc(option)}
+                </button>
+
+              `;
+            })
+            .join('')
         }
 
       </div>
@@ -3311,83 +4551,118 @@ function renderDrill(app){
 
 
   app
-    .querySelectorAll('.answer')
-    .forEach(b=>{
+    .querySelectorAll(
+      '.answer'
+    )
+    .forEach(button => {
 
-      b.onclick=()=>
+      button.onclick = () => {
+
         answer(
-          q,
-          b.dataset.answer
+          question,
+          button.dataset.answer
         );
+      };
     });
 }
 
-function answer(q,ans){
 
-  const good=
-    q.labels.some(
-      l=>
-        l.nom.trim()===ans
+function answer(
+  question,
+  answerValue
+) {
+
+  const correct =
+    question.labels.some(
+      label =>
+        label.nom.trim() ===
+        answerValue
     );
 
-  const d=state.drill;
 
-  if(good){
-    d.score++;
+  const drill =
+    state.drill;
+
+
+  if (correct) {
+    drill.score++;
   }
 
-  d.answers.push({
 
-    rangeId:q.rangeId,
+  drill.answers.push({
 
-    main:q.main,
+    rangeId:
+      question.rangeId,
 
-    answer:ans,
+    main:
+      question.main,
 
-    correct:good,
+    answer:
+      answerValue,
+
+    correct:
+      correct,
 
     correctAnswers:
-      q.labels.map(
-        l=>l.nom
+      question.labels.map(
+        label =>
+          label.nom
       )
   });
 
 
   document
-    .querySelectorAll('.answer')
-    .forEach(
-      b=>b.disabled=true
-    );
+    .querySelectorAll(
+      '.answer'
+    )
+    .forEach(button => {
+
+      button.disabled =
+        true;
+    });
 
 
-  const f=
+  const feedback =
     document.getElementById(
       'feedback'
     );
 
 
-  f.innerHTML=`
+  if (!feedback) {
+    return;
+  }
+
+
+  feedback.innerHTML = `
 
     <div
       class="feedback ${
-        good
+        correct
           ? 'correct'
           : 'wrong'
       }"
     >
 
       <b>
-        ${good?'✓ Correct':'✗ Incorrect'}
+        ${
+          correct
+            ? '✓ Correct'
+            : '✗ Incorrect'
+        }
       </b>
 
       <br>
 
       Bonne réponse :
+
       <b>
         ${
           esc(
-            q.labels
-              .map(l=>l.nom)
+            question.labels
+              .map(
+                label =>
+                  label.nom
+              )
               .join(' + ')
           )
         }
@@ -3402,35 +4677,42 @@ function answer(q,ans){
       style="width:100%"
     >
       ${
-        d.index+1<d.questions.length
+        drill.index + 1 <
+        drill.questions.length
           ? 'Suivant'
           : 'Voir le résultat'
       }
     </button>
+
   `;
 
 
   document
-    .getElementById('next')
-    .onclick=()=>{
+    .getElementById(
+      'next'
+    )
+    ?.addEventListener(
+      'click',
+      () => {
 
-      if(
-        d.index+1<
-        d.questions.length
-      ){
+        if (
+          drill.index + 1 <
+          drill.questions.length
+        ) {
 
-        d.index++;
+          drill.index++;
 
-        state.view='question';
+          state.view =
+            'question';
 
-        render();
+          render();
 
+        } else {
+
+          finishDrill();
+        }
       }
-      else{
-
-        finishDrill();
-      }
-    };
+    );
 }
 
 
@@ -3438,32 +4720,48 @@ function answer(q,ans){
    FIN DRILL
 ========================================================= */
 
-async function finishDrill(){
+async function finishDrill() {
 
-  const d=state.drill;
+  const drill =
+    state.drill;
+
+
+  if (!drill) {
+    return;
+  }
+
 
   await addHistory({
 
-    id:uid('drill'),
+    id:
+      uid('drill'),
 
     date:
       new Date().toISOString(),
 
-    score:d.score,
+    score:
+      drill.score,
 
-    total:d.questions.length,
+    total:
+      drill.questions.length,
 
-    answers:d.answers,
+    answers:
+      drill.answers,
 
     ranges:
-      d.ranges.map(
-        r=>r.id
+      drill.ranges.map(
+        range =>
+          range.id
       )
   });
 
+
   await trimHistory();
 
-  state.view='result';
+
+  state.view =
+    'result';
+
 
   render();
 }
@@ -3473,18 +4771,36 @@ async function finishDrill(){
    RESULTAT
 ========================================================= */
 
-function renderResult(app){
+function renderResult(app) {
 
-  const d=state.drill;
+  const drill =
+    state.drill;
 
-  const pct=
-    Math.round(
-      d.score/
-      d.questions.length*
-      100
-    );
 
-  app.innerHTML=`
+  if (!drill) {
+
+    nav('setup');
+
+    return;
+  }
+
+
+  const percentage =
+    drill.questions.length
+      ? Math.round(
+          drill.score /
+          drill.questions.length *
+          100
+        )
+      : 0;
+
+
+  const errors =
+    drill.questions.length -
+    drill.score;
+
+
+  app.innerHTML = `
 
     <main class="app">
 
@@ -3494,31 +4810,35 @@ function renderResult(app){
           Drill terminé
         </div>
 
+
         <div class="score">
-          ${pct}%
+          ${percentage}%
         </div>
+
 
         <div class="big">
-          ${d.score}
+
+          ${drill.score}
           /
-          ${d.questions.length}
+          ${drill.questions.length}
+
         </div>
 
-        <p>
-          <b>
-            ${pct} % de réussite
-          </b>
-        </p>
 
         <p>
-          ${
-            d.questions.length-d.score
-          }
-          erreur${
-            d.questions.length-d.score>1
-              ? 's'
-              : ''
-          }
+
+          <b>
+            ${percentage} % de réussite
+          </b>
+
+        </p>
+
+
+        <p>
+
+          ${errors}
+          erreur${errors > 1 ? 's' : ''}
+
         </p>
 
       </div>
@@ -3549,108 +4869,175 @@ function renderResult(app){
 
 
   document
-    .getElementById('retry')
-    .onclick=()=>{
+    .getElementById(
+      'retry'
+    )
+    ?.addEventListener(
+      'click',
+      () => {
 
-      const s=
-        buildSituations(
-          d.ranges
-        );
+        const situations =
+          buildSituations(
+            drill.ranges
+          );
 
-      d.questions=
-        makeQuestions(
-          s,
-          d.questions.length
-        );
 
-      d.index=0;
-      d.score=0;
-      d.answers=[];
+        drill.questions =
+          makeQuestions(
+            situations,
+            drill.questions.length
+          );
 
-      state.view='question';
 
-      render();
-    };
+        drill.index =
+          0;
+
+        drill.score =
+          0;
+
+        drill.answers =
+          [];
+
+
+        state.view =
+          'question';
+
+
+        render();
+      }
+    );
 
 
   document
-    .getElementById('home')
-    .onclick=()=>
-      nav('ranges');
+    .getElementById(
+      'home'
+    )
+    ?.addEventListener(
+      'click',
+      () => {
+
+        state.drill =
+          null;
+
+        nav('ranges');
+      }
+    );
 }
 
 
 /* =========================================================
-   EVENEMENTS GLOBAUX
+   NAVIGATION GLOBALE
 ========================================================= */
+
+/*
+  Délégation sur document :
+
+  Cela évite que les boutons RANGES / DRILL
+  cessent de fonctionner après un changement
+  de contenu de #app.
+*/
 
 document.addEventListener(
   'click',
-  e=>{
+  event => {
 
-    const n=
-      e.target.closest(
+    const button =
+      event.target.closest(
         '[data-nav]'
       );
 
-    if(n){
 
-      nav(
-        n.dataset.nav
-      );
+    if (!button) {
+      return;
     }
+
+
+    const target =
+      button.dataset.nav;
+
+
+    if (!target) {
+      return;
+    }
+
+
+    event.preventDefault();
+
+    nav(target);
   }
 );
 
 
-document
-  .getElementById('app')
-  .addEventListener(
-    'pointerdown',
-    e=>{
+/*
+  Protection de la matrice contre
+  les comportements tactiles du navigateur.
+*/
 
-      if(
-        e.target.closest(
-          '.matrix-wrap'
-        )
-      ){
+document.addEventListener(
+  'pointerdown',
+  event => {
 
-        e.preventDefault();
-      }
-    },
-    {
-      passive:false
+    if (
+      event.target.closest(
+        '.matrix-wrap'
+      )
+    ) {
+
+      event.preventDefault();
     }
-  );
+  },
+  {
+    passive: false
+  }
+);
 
 
 /* =========================================================
-   DEMARRAGE
+   DÉMARRAGE
 ========================================================= */
 
-init().catch(e=>{
+init().catch(error => {
 
-  document
-    .getElementById('app')
-    .innerHTML=`
+  console.error(
+    'Erreur de démarrage :',
+    error
+  );
 
-      <main class="app">
 
-        <div class="card">
+  const app =
+    document.getElementById(
+      'app'
+    );
 
-          <b>
-            Erreur de démarrage.
-          </b>
 
-          <p>
-            Ton navigateur ne semble pas
-            autoriser IndexedDB.
-          </p>
+  if (!app) {
+    return;
+  }
 
-        </div>
 
-      </main>
-    `;
+  app.innerHTML = `
 
-  console.error(e);
+    <main class="app">
+
+      <div class="card">
+
+        <b>
+          Erreur de démarrage.
+        </b>
+
+        <p>
+          Ton navigateur ne semble pas
+          autoriser IndexedDB.
+        </p>
+
+        <p class="muted">
+          Ouvre la console du navigateur
+          pour voir le détail de l'erreur.
+        </p>
+
+      </div>
+
+    </main>
+
+  `;
 });
