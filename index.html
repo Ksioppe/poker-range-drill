@@ -22,23 +22,30 @@
 </head>
 
 <body>
-
   <main id="app"></main>
 
   <nav class="bottom-nav">
-    <button id="nav-ranges" class="active" type="button">
+    <button
+      id="nav-ranges"
+      class="active"
+      type="button"
+      data-nav="ranges"
+    >
       RANGES
     </button>
 
-    <button id="nav-drill" type="button">
+    <button
+      id="nav-drill"
+      type="button"
+      data-nav="drill"
+    >
       DRILL
     </button>
   </nav>
 
   <div id="modal-root"></div>
 
-<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-<script src="./app.js"></script>
-
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>
