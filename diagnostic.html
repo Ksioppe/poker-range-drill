@@ -1,337 +1,77 @@
 <!DOCTYPE html>
 <html lang="fr">
-
 <head>
   <meta charset="UTF-8">
-
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1"
-  >
-
-  <title>Diagnostic - Poker Range Drill</title>
-
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111827">
+  <title>Diagnostic Poker Range Drill</title>
   <style>
-    body{
-      font-family:system-ui,sans-serif;
-      background:#f5f7fb;
-      color:#111827;
-      margin:0;
-      padding:20px;
-    }
-
-    main{
-      max-width:700px;
-      margin:auto;
-    }
-
-    .card{
-      background:#fff;
-      border:1px solid #ddd;
-      border-radius:14px;
-      padding:16px;
-      margin-bottom:12px;
-    }
-
-    button{
-      border:0;
-      border-radius:10px;
-      padding:11px 14px;
-      background:#111827;
-      color:#fff;
-      font-weight:700;
-      margin-right:8px;
-      margin-bottom:8px;
-      cursor:pointer;
-    }
-
-    pre{
-      white-space:pre-wrap;
-      word-break:break-word;
-      background:#f3f4f6;
-      padding:12px;
-      border-radius:10px;
-      line-height:1.5;
-    }
-
-    .range{
-      padding:10px 0;
-      border-top:1px solid #e5e7eb;
-    }
-
-    .muted{
-      color:#6b7280;
-    }
+    body{font-family:system-ui,sans-serif;max-width:760px;margin:24px auto;padding:0 16px;color:#111827;background:#f5f7fb}
+    h1{font-size:1.5rem}.card{background:#fff;border:1px solid #ddd;border-radius:12px;padding:16px;margin:12px 0}
+    button{padding:10px 14px;border:0;border-radius:8px;background:#111827;color:#fff;font-weight:700;margin:4px 4px 4px 0}
+    pre{white-space:pre-wrap;overflow-wrap:anywhere}.ok{color:#166534}.err{color:#991b1b}
   </style>
 </head>
-
 <body>
-
-<main>
-
-  <div class="card">
-
-    <h1>Diagnostic</h1>
-
-    <p class="muted">
-      Cette page lit uniquement les données locales de Poker Range Drill.
-      Elle ne supprime rien.
-    </p>
-
-    <button id="refresh">
-      Actualiser
-    </button>
-
-    <button id="export">
-      Exporter les données
-    </button>
-
-  </div>
-
-  <div class="card">
-
-    <h2>Informations</h2>
-
-    <pre id="output">Chargement...</pre>
-
-  </div>
-
-  <div class="card">
-
-    <h2>Ranges présentes</h2>
-
-    <div id="ranges"></div>
-
-  </div>
-
-</main>
-
-<script>
-
-const DB_NAME = "PokerRangeDrill";
-const DB_VERSION = 1;
-
-function openDB(){
-
-  return new Promise((resolve,reject)=>{
-
-    const request = indexedDB.open(DB_NAME,DB_VERSION);
-
-    request.onsuccess = () => {
-      resolve(request.result);
-    };
-
-    request.onerror = () => {
-      reject(request.error);
-    };
-
-  });
-}
-
-function getAll(db,storeName){
-
-  return new Promise((resolve,reject)=>{
-
-    if(!db.objectStoreNames.contains(storeName)){
-      resolve([]);
+  <h1>Diagnostic Poker Range Drill</h1>
+  <p>Cette page lit les données locales et permet d'en exporter une sauvegarde. Elle ne supprime ni ne modifie aucune donnée.</p>
+  <div class="card"><h2>État</h2><div id="status">Vérification en cours…</div></div>
+  <div class="card"><h2>Ranges enregistrées</h2><div id="ranges-count">—</div><button id="export">Exporter une sauvegarde JSON</button></div>
+  <div class="card"><h2>Historique</h2><div id="history-count">—</div></div>
+  <div class="card"><h2>Détails</h2><pre id="details"></pre></div>
+  <script>
+  (() => {
+    const status = document.getElementById('status');
+    const rangesCount = document.getElementById('ranges-count');
+    const historyCount = document.getElementById('history-count');
+    const details = document.getElementById('details');
+    let snapshot = { ranges: [], history: [] };
+    if (!('indexedDB' in window)) {
+      status.innerHTML = '<span class="err">IndexedDB n’est pas disponible dans ce navigateur.</span>';
       return;
     }
-
-    const tx = db.transaction(storeName,"readonly");
-    const store = tx.objectStore(storeName);
-    const request = store.getAll();
-
-    request.onsuccess = () => {
-      resolve(request.result || []);
-    };
-
+    const request = indexedDB.open('PokerRangeDrill');
     request.onerror = () => {
-      reject(request.error);
+      status.innerHTML = '<span class="err">Impossible d’ouvrir la base : ' + String(request.error) + '</span>';
+      details.textContent = 'Vérifie que tu utilises le même navigateur et le même profil que pour l’application.';
     };
-
-  });
-}
-
-async function refresh(){
-
-  const output = document.getElementById("output");
-  const rangesElement = document.getElementById("ranges");
-
-  output.textContent = "Lecture de la base...";
-
-  rangesElement.innerHTML = "";
-
-  try{
-
-    const db = await openDB();
-
-    const ranges = await getAll(db,"ranges");
-    const history = await getAll(db,"history");
-
-    const stores = Array.from(db.objectStoreNames);
-
-    let text = "";
-
-    text += `Domaine : ${location.origin}\n\n`;
-
-    text += `Base : ${DB_NAME}\n`;
-
-    text += `Version : ${db.version}\n\n`;
-
-    text += "Tables :\n";
-
-    if(stores.length){
-      stores.forEach(store => {
-        text += `• ${store}\n`;
-      });
-    }else{
-      text += "Aucune\n";
-    }
-
-    text += `\nNombre de ranges : ${ranges.length}\n`;
-
-    text += `Nombre d'historiques : ${history.length}\n`;
-
-    output.textContent = text;
-
-    if(!ranges.length){
-
-      rangesElement.innerHTML = `
-        <p class="muted">
-          ❌ La table <strong>ranges</strong> est vide.
-        </p>
-      `;
-
-      return;
-    }
-
-    ranges.forEach((range,index)=>{
-
-      const div = document.createElement("div");
-
-      div.className = "range";
-
-      const position =
-        range?.informations?.position || "Sans position";
-
-      const stack =
-        range?.informations?.stack || "";
-
-      const situation =
-        range?.informations?.situation || "";
-
-      const definedHands =
-        range?.mains
-          ? Object.keys(range.mains).length
-          : 0;
-
-      div.innerHTML = `
-        <strong>${escapeHTML(range.nom || "Sans nom")}</strong>
-
-        <br>
-
-        <span class="muted">
-          ${escapeHTML(position)}
-          ${stack ? " · " + escapeHTML(stack) : ""}
-          ${situation ? " · " + escapeHTML(situation) : ""}
-          · ${definedHands} mains définies
-        </span>
-
-        <br>
-
-        <small class="muted">
-          ID : ${escapeHTML(range.id || "aucun")}
-        </small>
-      `;
-
-      rangesElement.appendChild(div);
-
+    request.onsuccess = () => {
+      const db = request.result;
+      const stores = ['ranges', 'history'];
+      const missing = stores.filter(name => !db.objectStoreNames.contains(name));
+      if (missing.length) {
+        status.innerHTML = '<span class="err">Base ouverte, mais magasin(s) absent(s) : ' + missing.join(', ') + '</span>';
+        details.textContent = 'Magasins présents : ' + Array.from(db.objectStoreNames).join(', ');
+        db.close(); return;
+      }
+      const tx = db.transaction(stores, 'readonly');
+      const r = tx.objectStore('ranges').getAll();
+      const h = tx.objectStore('history').getAll();
+      let gotR = false, gotH = false;
+      const finish = () => {
+        if (!gotR || !gotH) return;
+        snapshot = { ranges: r.result || [], history: h.result || [] };
+        rangesCount.textContent = snapshot.ranges.length + ' range(s)';
+        historyCount.textContent = snapshot.history.length + ' session(s)';
+        status.innerHTML = '<span class="ok">Base locale accessible.</span>';
+        details.textContent = 'Base : PokerRangeDrill\nRanges : ' + snapshot.ranges.length + '\nHistorique : ' + snapshot.history.length + '\nMagasins : ' + stores.join(', ');
+        db.close();
+      };
+      r.onsuccess = () => { gotR = true; finish(); };
+      h.onsuccess = () => { gotH = true; finish(); };
+      r.onerror = h.onerror = () => {
+        status.innerHTML = '<span class="err">Erreur lors de la lecture des données.</span>';
+        db.close();
+      };
+    };
+    document.getElementById('export').addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'poker-range-drill-backup.json'; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     });
-
-  }catch(error){
-
-    output.textContent =
-      "❌ Erreur : " + error.message;
-
-  }
-
-}
-
-function escapeHTML(value){
-
-  return String(value ?? "")
-    .replace(/&/g,"&amp;")
-    .replace(/</g,"&lt;")
-    .replace(/>/g,"&gt;")
-    .replace(/"/g,"&quot;")
-    .replace(/'/g,"&#039;");
-}
-
-async function exportData(){
-
-  try{
-
-    const db = await openDB();
-
-    const ranges = await getAll(db,"ranges");
-    const history = await getAll(db,"history");
-
-    const data = {
-      app:"PokerRangeDrill",
-      version:1,
-      exportedAt:new Date().toISOString(),
-      ranges,
-      history
-    };
-
-    const blob = new Blob(
-      [JSON.stringify(data,null,2)],
-      {type:"application/json"}
-    );
-
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-
-    const date =
-      new Date()
-        .toISOString()
-        .slice(0,10);
-
-    a.href = url;
-    a.download =
-      `poker-range-drill-backup-${date}.json`;
-
-    document.body.appendChild(a);
-
-    a.click();
-
-    a.remove();
-
-    URL.revokeObjectURL(url);
-
-  }catch(error){
-
-    alert(
-      "Impossible d'exporter les données : " +
-      error.message
-    );
-
-  }
-
-}
-
-document
-  .getElementById("refresh")
-  .addEventListener("click",refresh);
-
-document
-  .getElementById("export")
-  .addEventListener("click",exportData);
-
-refresh();
-
-</script>
-
+  })();
+  </script>
 </body>
 </html>
