@@ -366,6 +366,12 @@ async function init() {
 
 function nav(view) {
 
+  // Le bouton DRILL utilise "drill" comme destination,
+  // mais l'écran correspondant dans l'application est "setup".
+  if (view === 'drill') {
+    view = 'setup';
+  }
+
   if (
     ![
       'ranges',
@@ -4928,6 +4934,17 @@ function renderResult(app) {
 /* =========================================================
    NAVIGATION GLOBALE
 ========================================================= */
+
+// Navigation principale.
+// Les boutons sont présents dans index.html et ne sont jamais recréés.
+document
+  .getElementById('nav-ranges')
+  ?.addEventListener('click', () => nav('ranges'));
+
+document
+  .getElementById('nav-drill')
+  ?.addEventListener('click', () => nav('drill'));
+
 
 /*
   Délégation sur document :
