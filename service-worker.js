@@ -1,4 +1,4 @@
-const CACHE = 'poker-range-drill-v12';
+const CACHE = 'poker-range-drill-v13';
 
 const ASSETS = [
   './',

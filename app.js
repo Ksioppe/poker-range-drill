@@ -3650,7 +3650,8 @@ function renderSetup(app) {
   `;
 
 
-  let drillLength = 20;
+  // Aucune durée n’est sélectionnée par défaut : le lancement doit être explicite.
+  let drillLength = null;
 
 
   getRanges()
@@ -3944,20 +3945,16 @@ function renderSetup(app) {
 
 
         app
-          .querySelectorAll(
-            '.len'
-          )
+          .querySelectorAll('.len')
           .forEach(item => {
-
-            item.classList.add(
-              'secondary'
-            );
+            item.classList.remove('active');
+            item.classList.add('secondary');
+            item.setAttribute('aria-pressed', 'false');
           });
 
-
-        button.classList.remove(
-          'secondary'
-        );
+        button.classList.add('active');
+        button.classList.remove('secondary');
+        button.setAttribute('aria-pressed', 'true');
       };
     });
 
@@ -4029,6 +4026,12 @@ function renderSetup(app) {
     ?.addEventListener(
       'click',
       async () => {
+
+        if (!Number.isInteger(drillLength) || drillLength <= 0) {
+          alert('Choisis le nombre de mains avant de commencer le drill.');
+          return;
+        }
+
 
         const ranges =
           await getRanges();
@@ -4520,28 +4523,22 @@ function renderDrill(app) {
 
               const label =
                 question.range.etiquettes.find(
-                  item =>
-                    item.nom.trim() ===
-                    option
-                );
+                  item => item.nom.trim() === option
+                ) ||
+                drill.ranges
+                  .flatMap(range => range.etiquettes || [])
+                  .find(item => item.nom.trim() === option);
 
+              const color = label?.couleur || '#d7d7d1';
 
               return `
-
                 <button
                   class="btn answer"
                   data-answer="${esc(option)}"
-                  style="
-                    --answer-border:
-                    ${esc(
-                      label?.couleur ||
-                      '#d7d7d1'
-                    )}
-                  "
+                  style="--answer-color:${esc(color)}; background-color:${esc(color)}; border-color:${esc(color)}; color:#111827"
                 >
                   ${esc(option)}
                 </button>
-
               `;
             })
             .join('')
